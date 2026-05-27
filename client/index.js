@@ -1,8 +1,8 @@
 // GitHub Data Sync - Frontend Extension for SillyTavern
 // Place this file in: public/scripts/extensions/third-party/github-data-sync.js
 
-import { registerSlashCommand } from '../../../slash-commands.js';
-import { extension_settings, saveSettingsDebounced } from '../../../extensions.js';
+import { registerSlashCommand } from '../../slash-commands.js';
+import { extension_settings, saveSettingsDebounced } from '../../extensions.js';
 
 const PLUGIN_NAME = 'github-data-sync';
 const API_BASE = '/api/plugins/github-data-sync';
@@ -639,26 +639,35 @@ function bindSettingsEvents() {
 // ===================== Init =====================
 
 (async function init() {
-    // Register slash commands
-    registerSlashCommand('sync-push', doPush, {
-        description: 'Push SillyTavern data to GitHub',
-        helpText: 'Push selected SillyTavern data categories to the configured GitHub repository.',
-    });
-    registerSlashCommand('sync-pull', doPull, {
-        description: 'Pull SillyTavern data from GitHub',
-        helpText: 'Pull the latest data from the configured GitHub repository and restore it locally.',
-    });
-    registerSlashCommand('sync-status', doStatus, {
-        description: 'Check GitHub sync status',
-        helpText: 'Display current sync configuration status and recent operation log.',
-    });
+    try {
+        // Register slash commands
+        registerSlashCommand('sync-push', doPush, {
+            description: 'Push SillyTavern data to GitHub',
+            helpText: 'Push selected SillyTavern data categories to the configured GitHub repository.',
+        });
+        registerSlashCommand('sync-pull', doPull, {
+            description: 'Pull SillyTavern data from GitHub',
+            helpText: 'Pull the latest data from the configured GitHub repository and restore it locally.',
+        });
+        registerSlashCommand('sync-status', doStatus, {
+            description: 'Check GitHub sync status',
+            helpText: 'Display current sync configuration status and recent operation log.',
+        });
 
-    // Add settings panel to Extensions area
-    $('#extensions_settings').append(buildSettingsHtml());
-    bindSettingsEvents();
+        // Add settings panel to Extensions area
+        const $target = $('#extensions_settings').length
+            ? $('#extensions_settings')
+            : $('#extensions_settings_container').length
+                ? $('#extensions_settings_container')
+                : $('body');
+        $target.append(buildSettingsHtml());
+        bindSettingsEvents();
 
-    // Create floating action button
-    createFloatButton();
+        // Create floating action button
+        createFloatButton();
 
-    console.log('[GitHub-Data-Sync] Frontend extension initialized.');
+        console.log('[GitHub-Data-Sync] Frontend extension initialized. Settings panel + floating button ready.');
+    } catch (err) {
+        console.error('[GitHub-Data-Sync] Init failed:', err);
+    }
 })();
