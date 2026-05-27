@@ -1,0 +1,11 @@
+{
+    "name": "github-data-sync",
+    "version": "1.0.0",
+    "private": true,
+    "description": "SillyTavern plugin to sync data with a private GitHub repository",
+    "main": "index.js",
+    "dependencies": {
+        "simple-git": "^3.27.0",
+        "fs-extra": "^11.2.0"
+    }
+}
