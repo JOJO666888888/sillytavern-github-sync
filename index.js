@@ -262,7 +262,36 @@ function registerEndpoint(app) {
     });
 }
 
+async function deployClientScript(sillyTavern) {
+    const publicRoot = (sillyTavern && sillyTavern.getPublicRoot)
+        ? sillyTavern.getPublicRoot()
+        : path.join(process.cwd(), 'public');
+
+    const targetDir = path.join(publicRoot, 'scripts', 'extensions', 'third-party');
+    const targetFile = path.join(targetDir, 'github-data-sync.js');
+    const sourceFile = path.join(__dirname, 'client', 'index.js');
+
+    try {
+        await fs.ensureDir(targetDir);
+
+        // Check if the target exists and is different from source
+        if (await fs.pathExists(targetFile)) {
+            const srcContent = await fs.readFile(sourceFile, 'utf-8');
+            const tgtContent = await fs.readFile(targetFile, 'utf-8');
+            if (srcContent === tgtContent) return;
+        }
+
+        await fs.copy(sourceFile, targetFile);
+        console.log(`[${PLUGIN_NAME}] Client script deployed to: ${targetFile}`);
+    } catch (err) {
+        console.error(`[${PLUGIN_NAME}] Failed to deploy client script:`, err.message);
+    }
+}
+
 async function init(sillyTavern) {
+    // Auto-deploy frontend companion to SillyTavern's extensions directory
+    await deployClientScript(sillyTavern);
+
     // Determine ST data root - default to data/default-user
     if (sillyTavern && sillyTavern.getDataRoot) {
         stDataRoot = sillyTavern.getDataRoot();
