@@ -1,11 +1,10 @@
 const path = require('path');
 const fs = require('fs-extra');
-const EventEmitter = require('events');
 const gitOps = require('./lib/git-ops');
 const syncEngine = require('./lib/sync-engine');
 const syncConfig = require('./lib/sync-config');
 
-const PLUGIN_NAME = 'github-data-sync';
+const PLUGIN_ID = 'github-data-sync';
 const SYNC_DIR_NAME = '.github-data-sync';
 const MAX_LOG_ENTRIES = 10;
 
@@ -17,28 +16,17 @@ let stDataRoot = '';
 let syncDir = '';
 
 function addLogEntry(type, message, details) {
-    syncLog.unshift({
-        type,
-        message,
-        details,
-        timestamp: new Date().toISOString(),
-    });
-    if (syncLog.length > MAX_LOG_ENTRIES) {
-        syncLog = syncLog.slice(0, MAX_LOG_ENTRIES);
-    }
+    syncLog.unshift({ type, message, details, timestamp: new Date().toISOString() });
+    if (syncLog.length > MAX_LOG_ENTRIES) syncLog = syncLog.slice(0, MAX_LOG_ENTRIES);
 }
 
 function loadConfig() {
-    // Read from SillyTavern's extension_settings if available
     let saved = {};
     try {
-        // In SillyTavern, extension settings are stored globally
-        if (global.extension_settings && global.extension_settings[PLUGIN_NAME]) {
-            saved = global.extension_settings[PLUGIN_NAME];
+        if (global.extension_settings && global.extension_settings[PLUGIN_ID]) {
+            saved = global.extension_settings[PLUGIN_ID];
         }
-    } catch {
-        // Not running in SillyTavern context
-    }
+    } catch { /* not in ST context */ }
     config = syncConfig.mergeWithDefaults(saved);
 }
 
@@ -46,35 +34,25 @@ function saveConfig(newConfig) {
     config = syncConfig.mergeWithDefaults(newConfig);
     try {
         if (global.extension_settings) {
-            global.extension_settings[PLUGIN_NAME] = config;
+            global.extension_settings[PLUGIN_ID] = config;
         }
-    } catch {
-        // Not running in SillyTavern context
-    }
+    } catch { /* not in ST context */ }
 }
 
 function startAutoPush() {
     stopAutoPush();
-    if (config.autoPush && config.autoPush.enabled && config.autoPush.intervalMinutes >= 5) {
-        const intervalMs = config.autoPush.intervalMinutes * 60 * 1000;
-        autoPushTimer = setInterval(() => {
-            executePush().catch(() => {
-                // Errors logged inside executePush
-            });
-        }, intervalMs);
+    if (config.autoPush?.enabled && config.autoPush.intervalMinutes >= 5) {
+        const ms = config.autoPush.intervalMinutes * 60 * 1000;
+        autoPushTimer = setInterval(() => { executePush().catch(() => {}); }, ms);
     }
 }
 
 function stopAutoPush() {
-    if (autoPushTimer) {
-        clearInterval(autoPushTimer);
-        autoPushTimer = null;
-    }
+    if (autoPushTimer) { clearInterval(autoPushTimer); autoPushTimer = null; }
 }
 
 async function ensureRepo() {
-    const isRepo = await gitOps.isRepo(syncDir);
-    if (!isRepo) {
+    if (!(await gitOps.isRepo(syncDir))) {
         await gitOps.cloneRepo(config, syncDir);
         addLogEntry('info', 'Repository cloned successfully.');
     }
@@ -84,36 +62,25 @@ async function executePush() {
     if (syncInProgress) {
         throw Object.assign(new Error('A sync operation is already in progress.'), { statusCode: 409, code: 'LOCKED' });
     }
-
     syncInProgress = true;
     try {
-        const validation = syncConfig.validateConfig(config);
-        if (!validation.valid) {
-            throw Object.assign(new Error(validation.errors.join(' ')), { statusCode: 400, code: 'INVALID_CONFIG' });
-        }
+        const v = syncConfig.validateConfig(config);
+        if (!v.valid) throw Object.assign(new Error(v.errors.join(' ')), { statusCode: 400, code: 'INVALID_CONFIG' });
 
         await ensureRepo();
-
-        // Pull first to avoid conflicts
-        try {
-            await gitOps.pullRepo(config, syncDir);
-        } catch {
-            // If pull fails (e.g. no remote commits yet), continue
-        }
+        try { await gitOps.pullRepo(config, syncDir); } catch { /* first push may have no remote commits */ }
 
         const result = await syncEngine.pushData(config, syncDir, stDataRoot);
-
         if (result.skipped) {
-            addLogEntry('info', 'Push skipped', 'No changes detected.');
+            addLogEntry('info', 'Push skipped - no changes.');
         } else {
-            addLogEntry('success', 'Push successful', `${result.filesChanged.length} categories: ${result.filesChanged.join(', ')} (${result.commitHash?.substring(0, 7) || ''})`);
+            addLogEntry('success', 'Push OK', `${result.filesChanged.length} categories (${(result.commitHash || '').substring(0, 7)})`);
         }
-
         return result;
     } catch (err) {
-        const safeMsg = gitOps.redactToken(err.message);
-        addLogEntry('error', 'Push failed', safeMsg);
-        throw Object.assign(new Error(safeMsg), { statusCode: err.statusCode || 500, code: err.code || 'PUSH_FAILED' });
+        const msg = gitOps.redactToken(err.message);
+        addLogEntry('error', 'Push failed', msg);
+        throw Object.assign(new Error(msg), { statusCode: err.statusCode || 500, code: err.code || 'PUSH_FAILED' });
     } finally {
         syncInProgress = false;
     }
@@ -123,89 +90,110 @@ async function executePull() {
     if (syncInProgress) {
         throw Object.assign(new Error('A sync operation is already in progress.'), { statusCode: 409, code: 'LOCKED' });
     }
-
     syncInProgress = true;
     try {
-        const validation = syncConfig.validateConfig(config);
-        if (!validation.valid) {
-            throw Object.assign(new Error(validation.errors.join(' ')), { statusCode: 400, code: 'INVALID_CONFIG' });
-        }
+        const v = syncConfig.validateConfig(config);
+        if (!v.valid) throw Object.assign(new Error(v.errors.join(' ')), { statusCode: 400, code: 'INVALID_CONFIG' });
 
         await ensureRepo();
         const result = await syncEngine.pullData(config, syncDir, stDataRoot);
-
-        if (result.conflicts && result.conflicts.length > 0) {
-            addLogEntry('warning', 'Pull completed with conflicts', `Conflicts in: ${result.conflicts.join(', ')}`);
+        if (result.conflicts?.length > 0) {
+            addLogEntry('warning', 'Pull had conflicts', result.conflicts.join(', '));
         } else {
-            addLogEntry('success', 'Pull successful', `${result.filesRestored.length} categories restored`);
+            addLogEntry('success', 'Pull OK', `${result.filesRestored.length} categories restored`);
         }
-
         return result;
     } catch (err) {
-        const safeMsg = gitOps.redactToken(err.message);
-        addLogEntry('error', 'Pull failed', safeMsg);
-        throw Object.assign(new Error(safeMsg), { statusCode: err.statusCode || 500, code: err.code || 'PULL_FAILED' });
+        const msg = gitOps.redactToken(err.message);
+        addLogEntry('error', 'Pull failed', msg);
+        throw Object.assign(new Error(msg), { statusCode: err.statusCode || 500, code: err.code || 'PULL_FAILED' });
     } finally {
         syncInProgress = false;
     }
 }
 
 async function validateConnection() {
-    const validation = syncConfig.validateConfig(config);
-    if (!validation.valid) {
-        return { valid: false, errors: validation.errors };
-    }
-
+    const v = syncConfig.validateConfig(config);
+    if (!v.valid) return { valid: false, errors: v.errors };
     try {
-        // Try to list remote refs to verify token and repo
         const remoteUrl = gitOps.buildRemoteUrl(config);
         const git = require('simple-git')();
         await git.listRemote(['--heads', remoteUrl]);
         return { valid: true, message: 'Successfully connected to repository.' };
     } catch (err) {
-        const safeMsg = gitOps.redactToken(err.message);
-        return { valid: false, errors: [safeMsg] };
+        return { valid: false, errors: [gitOps.redactToken(err.message)] };
     }
 }
 
-function registerEndpoint(app) {
-    app.post('/api/plugins/github-data-sync/push', async (req, res) => {
+// ===================== INIT =====================
+
+async function init(router) {
+    // ST root is two directories up from this plugin
+    const stRoot = path.join(__dirname, '..', '..');
+    const publicRoot = path.join(stRoot, 'public');
+
+    // Auto-deploy frontend companion to a SillyTavern extension directory
+    const extDir = path.join(publicRoot, 'scripts', 'extensions', 'third-party', 'github-data-sync');
+    const clientSourceDir = path.join(__dirname, 'client');
+    try {
+        await fs.ensureDir(extDir);
+        const files = ['index.js', 'manifest.json'];
+        for (const file of files) {
+            const src = path.join(clientSourceDir, file);
+            const dst = path.join(extDir, file);
+            let doCopy = true;
+            if (await fs.pathExists(dst)) {
+                const srcContent = await fs.readFile(src, 'utf-8');
+                const dstContent = await fs.readFile(dst, 'utf-8');
+                if (srcContent === dstContent) doCopy = false;
+            }
+            if (doCopy) {
+                await fs.copy(src, dst);
+                console.log(`[github-data-sync] Deployed -> ${dst}`);
+            }
+        }
+    } catch (err) {
+        console.error(`[github-data-sync] Failed to deploy client files:`, err.message);
+    }
+
+    // Set data paths
+    stDataRoot = path.join(stRoot, 'data', 'default-user');
+    syncDir = path.join(stDataRoot, SYNC_DIR_NAME);
+    await fs.ensureDir(stDataRoot);
+
+    // Load config and start auto-push if enabled
+    loadConfig();
+    if (config.autoPush?.enabled) {
+        if (syncConfig.validateConfig(config).valid) startAutoPush();
+    }
+
+    // ---- Register API routes on the router ----
+    // ST mounts these at /api/plugins/github-data-sync
+
+    router.post('/push', async (_req, res) => {
         try {
             const result = await executePush();
             res.json({ success: true, ...result });
         } catch (err) {
-            res.status(err.statusCode || 500).json({
-                success: false,
-                error: err.message,
-                code: err.code || 'UNKNOWN',
-            });
+            res.status(err.statusCode || 500).json({ success: false, error: err.message, code: err.code || 'UNKNOWN' });
         }
     });
 
-    app.post('/api/plugins/github-data-sync/pull', async (req, res) => {
+    router.post('/pull', async (_req, res) => {
         try {
             const result = await executePull();
             res.json({ success: true, ...result });
         } catch (err) {
-            res.status(err.statusCode || 500).json({
-                success: false,
-                error: err.message,
-                code: err.code || 'UNKNOWN',
-            });
+            res.status(err.statusCode || 500).json({ success: false, error: err.message, code: err.code || 'UNKNOWN' });
         }
     });
 
-    app.get('/api/plugins/github-data-sync/status', async (req, res) => {
+    router.get('/status', async (_req, res) => {
         try {
             let gitStatus = null;
             if (await gitOps.isRepo(syncDir)) {
-                try {
-                    gitStatus = await gitOps.getStatus(syncDir);
-                } catch {
-                    gitStatus = { error: 'Failed to read git status' };
-                }
+                try { gitStatus = await gitOps.getStatus(syncDir); } catch { gitStatus = { error: 'Failed to read git status' }; }
             }
-
             res.json({
                 success: true,
                 syncInProgress,
@@ -220,24 +208,16 @@ function registerEndpoint(app) {
         }
     });
 
-    app.get('/api/plugins/github-data-sync/config', (req, res) => {
-        res.json({
-            success: true,
-            config: syncConfig.maskConfig(config),
-        });
+    router.get('/config', (_req, res) => {
+        res.json({ success: true, config: syncConfig.maskConfig(config) });
     });
 
-    app.put('/api/plugins/github-data-sync/config', (req, res) => {
+    router.put('/config', (req, res) => {
         try {
             const partial = req.body || {};
             const merged = syncConfig.mergeWithDefaults({ ...config, ...partial });
-            const validation = syncConfig.validateConfig(merged);
-
-            if (!validation.valid) {
-                res.status(400).json({ success: false, errors: validation.errors });
-                return;
-            }
-
+            const v = syncConfig.validateConfig(merged);
+            if (!v.valid) { res.status(400).json({ success: false, errors: v.errors }); return; }
             saveConfig(merged);
             startAutoPush();
             res.json({ success: true, config: syncConfig.maskConfig(config) });
@@ -246,7 +226,7 @@ function registerEndpoint(app) {
         }
     });
 
-    app.get('/api/plugins/github-data-sync/validate', async (req, res) => {
+    router.get('/validate', async (_req, res) => {
         try {
             const result = await validateConnection();
             res.json({ success: true, ...result });
@@ -255,73 +235,27 @@ function registerEndpoint(app) {
         }
     });
 
-    app.get('/api/plugins/github-data-sync/client.js', (req, res) => {
-        const clientPath = path.join(__dirname, 'client', 'index.js');
+    router.get('/client.js', (_req, res) => {
+        const filePath = path.join(__dirname, 'client', 'index.js');
         res.type('application/javascript');
-        res.sendFile(clientPath);
+        res.sendFile(filePath);
     });
+
+    console.log(`[github-data-sync] Plugin initialized. Sync dir: ${syncDir}`);
 }
 
-async function deployClientScript(sillyTavern) {
-    const publicRoot = (sillyTavern && sillyTavern.getPublicRoot)
-        ? sillyTavern.getPublicRoot()
-        : path.join(process.cwd(), 'public');
-
-    const targetDir = path.join(publicRoot, 'scripts', 'extensions', 'third-party');
-    const targetFile = path.join(targetDir, 'github-data-sync.js');
-    const sourceFile = path.join(__dirname, 'client', 'index.js');
-
-    try {
-        await fs.ensureDir(targetDir);
-
-        // Check if the target exists and is different from source
-        if (await fs.pathExists(targetFile)) {
-            const srcContent = await fs.readFile(sourceFile, 'utf-8');
-            const tgtContent = await fs.readFile(targetFile, 'utf-8');
-            if (srcContent === tgtContent) return;
-        }
-
-        await fs.copy(sourceFile, targetFile);
-        console.log(`[${PLUGIN_NAME}] Client script deployed to: ${targetFile}`);
-    } catch (err) {
-        console.error(`[${PLUGIN_NAME}] Failed to deploy client script:`, err.message);
-    }
-}
-
-async function init(sillyTavern) {
-    // Auto-deploy frontend companion to SillyTavern's extensions directory
-    await deployClientScript(sillyTavern);
-
-    // Determine ST data root - default to data/default-user
-    if (sillyTavern && sillyTavern.getDataRoot) {
-        stDataRoot = sillyTavern.getDataRoot();
-    } else {
-        stDataRoot = path.join(process.cwd(), 'data', 'default-user');
-    }
-
-    syncDir = path.join(stDataRoot, SYNC_DIR_NAME);
-    await fs.ensureDir(stDataRoot);
-
-    loadConfig();
-
-    if (config.autoPush && config.autoPush.enabled) {
-        const validation = syncConfig.validateConfig(config);
-        if (validation.valid) {
-            startAutoPush();
-        }
-    }
-
-    console.log(`[${PLUGIN_NAME}] Plugin initialized. Sync dir: ${syncDir}`);
-}
-
-async function dispose() {
+async function exit() {
     stopAutoPush();
     syncInProgress = false;
-    console.log(`[${PLUGIN_NAME}] Plugin disposed.`);
+    console.log('[github-data-sync] Plugin exited.');
 }
 
 module.exports = {
+    info: {
+        id: 'github-data-sync',
+        name: 'GitHub Data Sync',
+        description: 'Sync SillyTavern data (characters, chats, worlds, settings) with a private GitHub repository. Push/pull via slash commands or periodic auto-push.',
+    },
     init,
-    dispose,
-    registerEndpoint,
+    exit,
 };
