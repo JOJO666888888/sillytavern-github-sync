@@ -640,18 +640,9 @@ function bindSettingsEvents() {
 (async function init() {
     try {
         // Register slash commands
-        registerSlashCommand('sync-push', doPush, {
-            description: 'Push SillyTavern data to GitHub',
-            helpText: 'Push selected SillyTavern data categories to the configured GitHub repository.',
-        });
-        registerSlashCommand('sync-pull', doPull, {
-            description: 'Pull SillyTavern data from GitHub',
-            helpText: 'Pull the latest data from the configured GitHub repository and restore it locally.',
-        });
-        registerSlashCommand('sync-status', doStatus, {
-            description: 'Check GitHub sync status',
-            helpText: 'Display current sync configuration status and recent operation log.',
-        });
+        registerSlashCommand('sync-push', doPush, [], 'Push SillyTavern data to GitHub');
+        registerSlashCommand('sync-pull', doPull, [], 'Pull SillyTavern data from GitHub');
+        registerSlashCommand('sync-status', doStatus, [], 'Check GitHub sync configuration and recent operations');
 
         // Add settings panel to Extensions area
         const $target = $('#extensions_settings').length
