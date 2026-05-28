@@ -3,10 +3,11 @@
     "display_name": "GitHub Data Sync",
     "version": "1.0.0",
     "description": "Sync SillyTavern data (characters, chats, worlds, settings, etc.) with a private GitHub repository. Manual push/pull via slash commands or periodic auto-push.",
-    "author": "",
+    "author": "JOJO666888888",
     "type": "plugin",
     "entry": "index.js",
     "loading_order": 200,
     "requires": [],
-    "optional": []
+    "optional": [],
+    "homePage": "https://github.com/JOJO666888888/sillytavern-github-sync"
 }
