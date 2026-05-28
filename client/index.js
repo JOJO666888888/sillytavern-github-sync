@@ -1,7 +1,7 @@
 // GitHub Data Sync - Frontend Extension for SillyTavern
 // This file is auto-deployed to: public/scripts/extensions/third-party/github-data-sync/index.js
 
-import { registerSlashCommand } from '../../slash-commands.js';
+import { registerSlashCommand } from '../../../slash-commands.js';
 
 const PLUGIN_NAME = 'github-data-sync';
 const API_BASE = '/api/plugins/github-data-sync';
