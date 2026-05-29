@@ -1,45 +1,47 @@
 # GitHub Data Sync for SillyTavern
 
-Sync SillyTavern data to a private GitHub repository — characters, chats, worlds, settings, and more. Push manually or on a timer. Pull to restore on any device.
+[English](README_EN.md) | 中文
 
-## Features
+将 SillyTavern 数据同步到 GitHub 私有仓库 —— 包括角色卡、聊天记录、世界书、设置等。支持手动推送/拉取，也可定时自动推送。
 
-- **Manual push/pull** via slash commands (`/sync-push`, `/sync-pull`, `/sync-status`)
-- **Auto-push** on a configurable interval
-- **Selectable data categories** — sync only what you need
-- **Test connection** button to verify your repo and token
-- **Sync log** with the last 10 operations
-- **Token security** — PAT stored server-side, never exposed to the frontend
-- **Auto-update** — plugin updates itself on server restart
+## 功能
 
-## Prerequisites
+- **手动推送/拉取** —— 通过斜杠命令（`/sync-push`、`/sync-pull`、`/sync-status`）
+- **定时自动推送** —— 可配置间隔时间，自动备份数据
+- **按类别选择同步内容** —— 只同步你需要的数据
+- **连接测试** —— 一键验证仓库和 Token 是否配置正确
+- **同步日志** —— 记录最近 10 次操作
+- **Token 安全** —— PAT 存储在服务端，不会暴露给前端
+- **自动更新** —— 服务器重启时自动拉取最新代码
 
-1. A **GitHub repository** (private recommended) for storing your data
-2. A **Personal Access Token** with repo access
+## 前置条件
 
-### Create a GitHub repository
+1. 一个 **GitHub 仓库**（建议设为私有）用于存储数据
+2. 一个 **Personal Access Token（个人访问令牌）**，需要 repo 权限
 
-Create a **private** repository on GitHub (e.g. `my-st-backup`). Leave it empty (no README, no .gitignore).
+### 创建 GitHub 仓库
 
-### Create a Personal Access Token
+在 GitHub 上创建一个**私有**仓库（例如 `my-st-backup`）。保持空仓库（不要添加 README 或 .gitignore）。
 
-1. Go to [GitHub Settings > Developer settings > Personal access tokens > Fine-grained tokens](https://github.com/settings/tokens?type=beta)
-2. Click "Generate new token"
-3. Under "Repository access", select "Only select repositories" and choose your backup repo
-4. Under "Permissions" > "Contents", set to **Read and write**
-5. Generate and copy the token (starts with `github_pat_`)
+### 创建 Personal Access Token
 
-## Installation
+1. 访问 [GitHub Settings > Developer settings > Personal access tokens > Fine-grained tokens](https://github.com/settings/tokens?type=beta)
+2. 点击 "Generate new token"
+3. 在 "Repository access" 中选择 "Only select repositories"，然后选择你的备份仓库
+4. 在 "Permissions" > "Contents" 中，设置为 **Read and write**
+5. 生成并复制 Token（以 `github_pat_` 开头）
 
-### Step 1: Enable server plugins
+## 安装
 
-In `SillyTavern/config.yaml`, add or set:
+### 第一步：启用服务器插件
+
+在 `SillyTavern/config.yaml` 中添加或修改：
 
 ```yaml
 enableServerPlugins: true
 ```
 
-### Step 2: Install the plugin
+### 第二步：安装插件
 
 ```bash
 cd SillyTavern/plugins
@@ -48,81 +50,81 @@ cd github-data-sync
 npm install
 ```
 
-### Step 3: Restart SillyTavern
+### 第三步：重启 SillyTavern
 
-The plugin auto-deploys its frontend extension on startup. Restart and refresh the page.
+插件会在启动时自动部署前端扩展。重启后刷新浏览器页面。
 
-### Step 4: Configure
+### 第四步：配置
 
-1. Open SillyTavern in your browser
-2. Go to **Extensions** settings (puzzle piece icon in top bar)
-3. Find the **GitHub Data Sync** section
-4. Fill in:
-   - **GitHub Repository**: `your-username/your-repo-name`
-   - **Branch**: `main` (or your preferred branch)
-   - **Personal Access Token**: paste your token
-5. Click **Test Connection** to verify
-6. Select which data categories to sync
-7. Optionally enable auto-push
+1. 在浏览器中打开 SillyTavern
+2. 进入 **扩展** 设置（顶部工具栏的拼图图标）
+3. 找到 **GitHub Data Sync** 区域
+4. 填写以下信息：
+   - **GitHub Repository**：`你的用户名/仓库名`
+   - **Branch**：`main`（或你使用的分支）
+   - **Personal Access Token**：粘贴你的 Token
+5. 点击 **Test Connection** 验证配置
+6. 选择要同步的数据类别
+7. 可选：启用自动推送
 
-## Usage
+## 使用方式
 
-### Slash Commands
+### 斜杠命令
 
-| Command | Action |
-|---------|--------|
-| `/sync-push` | Push local data to GitHub |
-| `/sync-pull` | Pull latest data from GitHub and restore locally |
-| `/sync-status` | Show current sync status and recent log entries |
+| 命令 | 功能 |
+|------|------|
+| `/sync-push` | 将本地数据推送到 GitHub |
+| `/sync-pull` | 从 GitHub 拉取最新数据并恢复到本地 |
+| `/sync-status` | 显示当前同步状态和最近的日志条目 |
 
-### Floating Button
+### 悬浮按钮
 
-A floating button (bottom-right corner) provides quick access to push, pull, and status.
+页面右下角有一个悬浮按钮，可快速执行推送、拉取和查看状态。
 
-### Auto-Push
+### 自动推送
 
-Enable in settings to automatically push at a regular interval (minimum 5 minutes).
+在设置中启用后，会按固定间隔自动推送数据（最短间隔为 5 分钟）。
 
-### Pull with Confirmation
+### 拉取确认
 
-By default, `/sync-pull` shows a confirmation dialog before overwriting local data. You can disable this in settings.
+默认情况下，`/sync-pull` 会在覆盖本地数据前弹出确认对话框。可在设置中关闭此确认。
 
-## Data Categories
+## 数据类别
 
-| Category | Path |
-|----------|------|
-| Characters | `data/default-user/characters/` |
-| Chats | `data/default-user/chats/` |
-| Worlds | `data/default-user/worlds/` |
-| Groups | `data/default-user/groups/` |
-| Settings | `data/default-user/settings.json` |
-| Presets | `data/default-user/presets/` |
-| Personas | `data/default-user/personas/` |
-| Backgrounds | `data/default-user/backgrounds/` |
-| Themes | `data/default-user/themes/` |
+| 类别 | 路径 |
+|------|------|
+| 角色 (Characters) | `data/default-user/characters/` |
+| 聊天 (Chats) | `data/default-user/chats/` |
+| 世界书 (Worlds) | `data/default-user/worlds/` |
+| 群组 (Groups) | `data/default-user/groups/` |
+| 设置 (Settings) | `data/default-user/settings.json` |
+| 预设 (Presets) | `data/default-user/presets/` |
+| 人格 (Personas) | `data/default-user/personas/` |
+| 背景 (Backgrounds) | `data/default-user/backgrounds/` |
+| 主题 (Themes) | `data/default-user/themes/` |
 
-## Security
+## 安全
 
-- Your GitHub token is stored in SillyTavern's extension settings on the server
-- It is **never** sent to the browser unmasked
-- All git error messages have the token redacted before reaching the client
-- The sync repository is stored under `data/default-user/.github-data-sync/`
+- GitHub Token 存储在 SillyTavern 服务端的扩展设置中
+- Token **绝不会**以明文形式发送到浏览器
+- 所有 git 错误信息中的 Token 都会被脱敏后才发送到客户端
+- 同步仓库本地副本位于 `data/default-user/.github-data-sync/`
 
-## Troubleshooting
+## 常见问题
 
-| Issue | Solution |
-|-------|----------|
-| Plugin not loading | Check `enableServerPlugins: true` in config.yaml |
-| Settings panel not appearing | Hard refresh browser (Ctrl+Shift+R) |
-| "Authentication failed" | Verify token has `Contents: Read and write` for the correct repo |
-| "Repository not found" | Check repo name format: `username/repo-name` (case-sensitive) |
-| "A sync operation is already in progress" | Wait for the current operation to complete |
-| Large first sync takes long | Normal on first push; subsequent pushes are incremental |
-| Plugin not updating | Check `enableServerPluginsAutoUpdate: true` in config.yaml |
+| 问题 | 解决方法 |
+|------|----------|
+| 插件未加载 | 检查 `config.yaml` 中是否设置了 `enableServerPlugins: true` |
+| 设置面板不显示 | 强制刷新浏览器（Ctrl+Shift+R） |
+| "Authentication failed" | 确认 Token 具有 `Contents: Read and write` 权限，且授权给了正确的仓库 |
+| "Repository not found" | 检查仓库名格式：`用户名/仓库名`（区分大小写） |
+| "A sync operation is already in progress" | 等待当前操作完成后再试 |
+| 首次同步数据量大，耗时长 | 正常现象；后续同步是增量的，会很快 |
+| 插件未自动更新 | 检查 `config.yaml` 中是否设置了 `enableServerPluginsAutoUpdate: true` |
 
-## Updating
+## 更新
 
-The plugin auto-updates on server restart. To update manually:
+插件会在服务器重启时自动更新。如需手动更新：
 
 ```bash
 cd SillyTavern/plugins/github-data-sync
