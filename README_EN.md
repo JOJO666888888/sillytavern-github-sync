@@ -31,6 +31,14 @@ Create a **private** repository on GitHub (e.g. `my-st-backup`). Leave it empty 
 4. Under "Permissions" > "Contents", set to **Read and write**
 5. Generate and copy the token (starts with `github_pat_`)
 
+## Important: Server Plugin, NOT a Frontend Extension
+
+This plugin performs Git operations and file I/O on the server side and depends on npm packages like `simple-git`. It **must be installed in the `plugins/` directory**.
+
+**Do NOT use SillyTavern's built-in "Install Extension" feature** — it only handles frontend extensions (`public/scripts/extensions/third-party/`), does not run `npm install`, and does not load into the server plugin system. Installing via that method will have no effect.
+
+Please follow the manual installation steps below.
+
 ## Installation
 
 ### Step 1: Enable server plugins

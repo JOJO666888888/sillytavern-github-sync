@@ -31,6 +31,14 @@
 4. 在 "Permissions" > "Contents" 中，设置为 **Read and write**
 5. 生成并复制 Token（以 `github_pat_` 开头）
 
+## 重要：这是服务器插件，不是前端扩展
+
+此插件需要在服务器端执行 Git 操作和文件读写，依赖 `simple-git` 等 npm 包，**必须安装到 `plugins/` 目录**。
+
+**不能用酒馆自带的「安装扩展」功能安装** —— 酒馆的内置安装器只处理前端扩展（`public/scripts/extensions/third-party/`），不会执行 `npm install`，也不会加载到服务器插件系统。用它安装的话插件不会有任何效果。
+
+请按下面的步骤手动安装。
+
 ## 安装
 
 ### 第一步：启用服务器插件
