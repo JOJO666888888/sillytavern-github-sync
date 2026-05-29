@@ -7,8 +7,25 @@ const API_BASE = '/api/plugins/github-data-sync';
 
 // ===================== API helpers =====================
 
+let _csrfToken = null;
+
+async function getCsrfToken() {
+    if (_csrfToken) return _csrfToken;
+    try {
+        const resp = await fetch('/csrf-token');
+        const data = await resp.json();
+        _csrfToken = data.token;
+        return _csrfToken;
+    } catch { return ''; }
+}
+
 async function apiCall(method, endpoint, body) {
-    const opts = { method, headers: { 'Content-Type': 'application/json' } };
+    const headers = { 'Content-Type': 'application/json' };
+    if (method !== 'GET') {
+        const token = await getCsrfToken();
+        if (token) headers['X-CSRF-Token'] = token;
+    }
+    const opts = { method, headers };
     if (body) opts.body = JSON.stringify(body);
     const resp = await fetch(`${API_BASE}${endpoint}`, opts);
     const data = await resp.json();
