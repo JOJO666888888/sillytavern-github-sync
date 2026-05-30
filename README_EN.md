@@ -111,6 +111,8 @@ By default, `/sync-pull` shows a confirmation dialog before overwriting local da
 | Backgrounds | `data/default-user/backgrounds/` |
 | Themes | `data/default-user/themes/` |
 
+> **About API configuration:** This plugin does **NOT** touch SillyTavern's API settings (e.g., OpenRouter Key, Claude Key, etc.). The plugin's own GitHub Token is automatically stripped before push and preserved locally during pull — it is **never synced to the repository**. If you prefer not to sync other extension settings in `settings.json` across devices, simply uncheck the "Settings" category.
+
 ## Security
 
 - Your GitHub token is stored in SillyTavern's extension settings on the server

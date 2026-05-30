@@ -111,6 +111,8 @@ npm install
 | 背景 (Backgrounds) | `data/default-user/backgrounds/` |
 | 主题 (Themes) | `data/default-user/themes/` |
 
+> **关于 API 配置：** 此插件**不涉及** SillyTavern 的 API 配置（如 OpenRouter Key、Claude Key 等）。插件的 GitHub Token 等配置在推送时自动过滤，拉取时自动保留本地值，**不会被同步到仓库中**。如果你不希望 `settings.json` 中的其他扩展设置在不同设备间同步，取消勾选「设置 (Settings)」类别即可。
+
 ## 安全
 
 - GitHub Token 存储在 SillyTavern 服务端的扩展设置中
