@@ -97,30 +97,107 @@ Enable in settings to automatically push at a regular interval (minimum 5 minute
 
 By default, `/sync-pull` shows a confirmation dialog before overwriting local data. You can disable this in settings.
 
-## Multi-Device Sync Guide
+## Multi-Device Sync Rules
 
-The plugin supports syncing data across multiple devices. Please read the following before using this feature.
+If you have this plugin installed on multiple devices (e.g., desktop, laptop, cloud server) configured with the same GitHub repo, **follow these rules strictly** to avoid data loss or conflicts.
 
-### First Use (Device A)
+### Hard Rules (Must Follow)
 
-1. Install the plugin, configure your repo and token
-2. Select the data categories you want to sync, click Save
-3. Run `/sync-push` to push data to GitHub
+**1. Enable auto-push on only ONE device.** All other devices must have `autoPush` disabled and sync manually. Recommend enabling it on your most frequently used primary device.
 
-### Sync on Another Device (Device B)
+**2. Pull when you start, push when you're done.** This is the core workflow for multi-device sync. See below for details.
 
-1. Install the plugin, configure the **same repo** and token
-2. Run `/sync-pull` to pull data from GitHub
-3. Device B's local data will be **overwritten** by the repo data
+**3. NEVER edit the same character/chat on two devices simultaneously and push both.** The second push will overwrite the first one's data.
 
-### Important Notes
+### Daily Workflows
 
-1. **Do NOT enable auto-push on multiple devices** — Enable `autoPush` only on your primary device, and sync manually on others. Simultaneous pushes from multiple devices may cause conflicts.
-2. **Push before pull** — Before switching devices, always `/sync-push` on the current device first, then `/sync-pull` on the other device to avoid data loss.
-3. **Be cautious with the "Settings" category** — `settings.json` contains all extension configurations. Devices may have different extensions installed, so syncing settings across them could cause issues. Only sync categories you actually need to share.
-4. **First pull overwrites local data** — Running `/sync-pull` on a new device for the first time will overwrite local data with the repo data. Back up important data first.
-5. **Large files** — Character card images and chat attachments can be large. The first sync may take a while.
-6. **Plugin config is NOT synced** — GitHub token, repo address, and other plugin settings are filtered out during push/pull and will not be shared between devices (each device needs its own configuration).
+#### Scenario 1: Primary device + secondary device (Recommended)
+
+Primary device (desktop) has `autoPush` enabled at 30-minute intervals. Secondary device (laptop) has auto-push off.
+
+**When using the secondary device:**
+
+```
+Open ST → /sync-pull → use normally → /sync-push → close
+```
+
+That's it. Pull latest, use, push back.
+
+#### Scenario 2: Two devices, both manual
+
+Both devices have `autoPush` off. Everything is manual.
+
+```
+On Device A:
+  Open ST → /sync-pull → use → /sync-push → close
+
+Switch to Device B:
+  Open ST → /sync-pull → use → /sync-push → close
+
+Back to Device A:
+  Open ST → /sync-pull → use → /sync-push → close
+  ...repeat
+```
+
+#### Scenario 3: Always-on server
+
+Server runs 24/7 with `autoPush` enabled. Other devices sync manually.
+
+```
+Laptop:
+  Open ST → /sync-pull → use → /sync-push → close
+
+Phone/Tablet:
+  Open ST → /sync-pull → use → /sync-push → close
+```
+
+The server's auto-push acts as a safety net — even if you forget to push from a secondary device, data was already saved by the server.
+
+### Troubleshooting
+
+| Situation | What to do |
+|-----------|------------|
+| Forgot to push before switching devices | Go back to the original device and push, then pull on the current device |
+| Both devices have modified data | Choose the device whose data you **want to keep**, push from it first, then pull on the other (the other's changes will be lost) |
+| Data looks wrong after pulling | Check the commit history on your GitHub repo to see when and from which device the last push happened |
+| Push rejected (conflict) | Run `/sync-pull` first to merge remote changes, then `/sync-push` |
+| Check current sync state | Use `/sync-status` to view git status and recent sync log |
+
+### Recommended Category Config
+
+| Category | Cross-device sync | Backup only | Not recommended |
+|----------|:--:|:--:|:--:|
+| Characters | ✓ | | |
+| Chats | ✓ | | |
+| Worlds | ✓ | | |
+| Groups | ✓ | | |
+| Settings | | ✓ | |
+| Presets | | ✓ | |
+| Personas | ✓ | | |
+| Backgrounds | | ✓ | |
+| Themes | | ✓ | |
+
+> "Cross-device sync" = keep consistent across devices; "Backup only" = stored on GitHub but not recommended for cross-device overwriting, since different devices may have different preferences.
+
+### A Typical Multi-Device Day
+
+```
+Morning - on laptop:
+  /sync-pull              ← pull last night's desktop changes
+  chat for a while
+  /sync-push              ← push, then shut down
+
+Daytime - on phone (browser):
+  /sync-pull              ← pull morning's laptop chat
+  draw cards, edit world info
+  /sync-push              ← push and close
+
+Evening - on desktop (autoPush on):
+  /sync-pull              ← pull daytime changes
+  continue chatting...
+  (auto-push after 30 min)
+  continue chatting...
+  shutdown               ← autoPush already saved before shutdown
 
 ## Data Categories
 
