@@ -97,6 +97,31 @@ Enable in settings to automatically push at a regular interval (minimum 5 minute
 
 By default, `/sync-pull` shows a confirmation dialog before overwriting local data. You can disable this in settings.
 
+## Multi-Device Sync Guide
+
+The plugin supports syncing data across multiple devices. Please read the following before using this feature.
+
+### First Use (Device A)
+
+1. Install the plugin, configure your repo and token
+2. Select the data categories you want to sync, click Save
+3. Run `/sync-push` to push data to GitHub
+
+### Sync on Another Device (Device B)
+
+1. Install the plugin, configure the **same repo** and token
+2. Run `/sync-pull` to pull data from GitHub
+3. Device B's local data will be **overwritten** by the repo data
+
+### Important Notes
+
+1. **Do NOT enable auto-push on multiple devices** — Enable `autoPush` only on your primary device, and sync manually on others. Simultaneous pushes from multiple devices may cause conflicts.
+2. **Push before pull** — Before switching devices, always `/sync-push` on the current device first, then `/sync-pull` on the other device to avoid data loss.
+3. **Be cautious with the "Settings" category** — `settings.json` contains all extension configurations. Devices may have different extensions installed, so syncing settings across them could cause issues. Only sync categories you actually need to share.
+4. **First pull overwrites local data** — Running `/sync-pull` on a new device for the first time will overwrite local data with the repo data. Back up important data first.
+5. **Large files** — Character card images and chat attachments can be large. The first sync may take a while.
+6. **Plugin config is NOT synced** — GitHub token, repo address, and other plugin settings are filtered out during push/pull and will not be shared between devices (each device needs its own configuration).
+
 ## Data Categories
 
 | Category | Path |
