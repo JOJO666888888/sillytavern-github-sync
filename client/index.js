@@ -42,7 +42,7 @@ async function loadConfig() {
 
 async function saveConfig(partial) {
     try { const data = await apiCall('PUT', '/config', partial); return data.config || {}; }
-    catch (err) { toastr.error(`Save failed: ${err.message}`, 'GitHub Sync'); return null; }
+    catch (err) { toastr.error(`保存失败: ${err.message}`, 'GitHub Sync'); return null; }
 }
 
 function escapeHtml(str) {
@@ -53,17 +53,17 @@ function escapeHtml(str) {
 
 async function doPush() {
     try {
-        toastr.info('Pushing data to GitHub...', 'GitHub Sync');
+        toastr.info('正在推送到 GitHub...', 'GitHub Sync');
         const result = await apiCall('POST', '/push');
         if (result.skipped) {
-            toastr.warning('No changes to push.', 'GitHub Sync');
+            toastr.warning('没有需要推送的更改。', 'GitHub Sync');
         } else {
             const files = result.filesChanged?.join(', ') || '';
-            toastr.success('Push OK: ' + files, 'GitHub Sync');
+            toastr.success('推送成功: ' + files, 'GitHub Sync');
         }
         refreshAllUI();
     } catch (err) {
-        toastr.error('Push failed: ' + err.message, 'GitHub Sync');
+        toastr.error('推送失败: ' + err.message, 'GitHub Sync');
     }
 }
 
@@ -71,43 +71,43 @@ async function doPull() {
     const cfg = await loadConfig();
     if (cfg.pullConfirmation !== false) {
         const confirmed = await showConfirmDialog(
-            'Pull from GitHub?',
-            'This will overwrite local SillyTavern data with the latest from the repository. Continue?'
+            '确认从 GitHub 拉取？',
+            '这将用仓库中最新的数据覆盖本地的 SillyTavern 数据。是否继续？'
         );
         if (!confirmed) return;
     }
     try {
-        toastr.info('Pulling data from GitHub...', 'GitHub Sync');
+        toastr.info('正在从 GitHub 拉取数据...', 'GitHub Sync');
         const result = await apiCall('POST', '/pull');
         if (result.conflicts?.length > 0) {
-            toastr.warning('Pull had conflicts in: ' + result.conflicts.join(', '), 'GitHub Sync');
+            toastr.warning('拉取时有冲突: ' + result.conflicts.join(', '), 'GitHub Sync');
         } else {
             const files = result.filesRestored?.join(', ') || '';
-            toastr.success('Pull OK: ' + files, 'GitHub Sync');
+            toastr.success('拉取成功: ' + files, 'GitHub Sync');
         }
         refreshAllUI();
     } catch (err) {
-        toastr.error('Pull failed: ' + err.message, 'GitHub Sync');
+        toastr.error('拉取失败: ' + err.message, 'GitHub Sync');
     }
 }
 
 async function doStatus() {
     try {
         const data = await apiCall('GET', '/status');
-        let msg = 'GitHub Sync Status\n\n';
-        msg += `Auto-push: ${data.autoPushEnabled ? 'ON (every ' + data.autoPushInterval + 'min)' : 'OFF'}\n`;
-        msg += `Config valid: ${data.configValid ? 'Yes' : 'No'}\n`;
+        let msg = 'GitHub Sync 状态\n\n';
+        msg += `自动推送: ${data.autoPushEnabled ? '开启 (每' + data.autoPushInterval + '分钟)' : '关闭'}\n`;
+        msg += `配置有效: ${data.configValid ? '是' : '否'}\n`;
         if (data.gitStatus) {
             const gs = data.gitStatus;
-            msg += `Branch: ${gs.current}, Ahead: ${gs.ahead}, Behind: ${gs.behind}\n`;
-            msg += `Changes pending: ${gs.hasChanges ? 'Yes' : 'No'}\n`;
+            msg += `分支: ${gs.current}, 领先: ${gs.ahead}, 落后: ${gs.behind}\n`;
+            msg += `有未推送更改: ${gs.hasChanges ? '是' : '否'}\n`;
         }
         if (data.syncLog?.length > 0) {
-            msg += `\nLast: ${data.syncLog[0].message}`;
+            msg += `\n最近: ${data.syncLog[0].message}`;
         }
         toastr.info(msg, 'GitHub Sync', { timeOut: 10000 });
     } catch (err) {
-        toastr.error('Status check failed: ' + err.message, 'GitHub Sync');
+        toastr.error('状态检查失败: ' + err.message, 'GitHub Sync');
     }
 }
 
@@ -122,8 +122,8 @@ function showConfirmDialog(title, message) {
             '<h4>' + escapeHtml(title) + '</h4>',
             '<p>' + escapeHtml(message) + '</p>',
             '<div class="dialog-buttons">',
-            '<button class="btn btn-danger" data-action="confirm">Confirm</button>',
-            '<button class="btn btn-secondary" data-action="cancel">Cancel</button>',
+            '<button class="btn btn-danger" data-action="confirm">确认</button>',
+            '<button class="btn btn-secondary" data-action="cancel">取消</button>',
             '</div></div></div>'
         ].join('');
         $('body').append(html);
@@ -142,9 +142,9 @@ async function refreshAllUI() {
         // Status indicator
         const $s = $('#sync-status-indicator');
         if ($s.length) {
-            if (data.syncInProgress) $s.text('Syncing...').css('color', '#f0ad4e');
-            else if (!data.configValid) $s.text('Not configured').css('color', '#d9534f');
-            else $s.text('Idle').css('color', '#5cb85c');
+            if (data.syncInProgress) $s.text('同步中...').css('color', '#f0ad4e');
+            else if (!data.configValid) $s.text('未配置').css('color', '#d9534f');
+            else $s.text('就绪').css('color', '#5cb85c');
         }
         // Float button status
         const dot = $('#sync-float-status');
@@ -161,7 +161,7 @@ async function refreshAllUI() {
                 const icon = icons[e.type] || '';
                 return '<div class="sync-log-entry sync-log-' + e.type + '">' + icon + ' ' + time + ' - ' + escapeHtml(e.message) + '</div>';
             }).join('');
-            $log.html(entries || '<div class="sync-log-entry">No sync history yet.</div>');
+            $log.html(entries || '<div class="sync-log-entry">暂无同步记录。</div>');
         }
     } catch (e) { /* ignore */ }
 }
@@ -173,15 +173,15 @@ async function loadBackupList() {
         var data = await apiCall('GET', '/backups');
         var $list = $('#sync-backup-list');
         if (!data.backups || data.backups.length === 0) {
-            $list.html('<div style="color:#777;font-size:12px;">No backups yet.</div>');
+            $list.html('<div style="color:#777;font-size:12px;">暂无备份。</div>');
             return;
         }
         var html = data.backups.map(function (b) {
             var ts = b.id.replace(/T/g, ' ').substring(0,16);
             return '<div style="display:flex;align-items:center;gap:4px;padding:3px 0;border-bottom:1px solid #222;font-size:12px;">' +
                 '<span style="flex:1;color:#ccc;">' + escapeHtml(ts) + ' (' + escapeHtml(b.sizeFormatted) + ')</span>' +
-                '<button class="btn btn-sm sync-backup-restore" data-id="' + escapeHtml(b.id) + '" title="Restore">Restore</button>' +
-                '<button class="btn btn-sm sync-backup-delete" data-id="' + escapeHtml(b.id) + '" title="Delete">Del</button>' +
+                '<button class="btn btn-sm sync-backup-restore" data-id="' + escapeHtml(b.id) + '" title="恢复">恢复</button>' +
+                '<button class="btn btn-sm sync-backup-delete" data-id="' + escapeHtml(b.id) + '" title="删除">删除</button>' +
                 '</div>';
         }).join('');
         $list.html(html);
@@ -192,36 +192,36 @@ async function doBackups() {
     try {
         var data = await apiCall('GET', '/backups');
         if (!data.backups || data.backups.length === 0) {
-            toastr.info('No backups found.', 'GitHub Sync');
+            toastr.info('暂无备份。', 'GitHub Sync');
             return;
         }
-        var msg = 'Backups:\n' + data.backups.map(function (b, i) {
+        var msg = '备份列表:\n' + data.backups.map(function (b, i) {
             return '[' + (i + 1) + '] ' + b.id.replace(/T/g, ' ').substring(0, 16) + ' - ' + b.sizeFormatted + ' (' + b.categories.join(', ') + ')';
         }).join('\n');
         toastr.info(msg, 'GitHub Sync', { timeOut: 15000 });
-    } catch (err) { toastr.error('Failed: ' + err.message, 'GitHub Sync'); }
+    } catch (err) { toastr.error('获取备份失败: ' + err.message, 'GitHub Sync'); }
 }
 
 async function doRestore(index) {
     try {
         var data = await apiCall('GET', '/backups');
         if (!data.backups || data.backups.length === 0) {
-            toastr.info('No backups found.', 'GitHub Sync');
+            toastr.info('暂无备份。', 'GitHub Sync');
             return;
         }
         var idx = (typeof index === 'number') ? index - 1 : 0;
         if (idx < 0 || idx >= data.backups.length) {
-            toastr.error('Invalid backup index. Use /sync-backups to list.', 'GitHub Sync');
+            toastr.error('无效的备份序号。使用 /sync-backups 查看备份列表。', 'GitHub Sync');
             return;
         }
         var backupId = data.backups[idx].id;
-        var confirmed = await showConfirmDialog('Restore Backup?', 'Overwrite current data with backup from ' + backupId.replace(/T/g, ' ').substring(0, 16) + '?');
+        var confirmed = await showConfirmDialog('确认恢复备份？', '将用备份（' + backupId.replace(/T/g, ' ').substring(0, 16) + '）覆盖当前数据？');
         if (!confirmed) return;
-        toastr.info('Restoring backup...', 'GitHub Sync');
+        toastr.info('正在恢复备份...', 'GitHub Sync');
         var result = await apiCall('POST', '/backup/restore', { backupId: backupId });
-        toastr.success('Restored: ' + result.restored.join(', '), 'GitHub Sync');
+        toastr.success('已恢复: ' + result.restored.join(', '), 'GitHub Sync');
         refreshAllUI();
-    } catch (err) { toastr.error('Restore failed: ' + err.message, 'GitHub Sync'); }
+    } catch (err) { toastr.error('恢复失败: ' + err.message, 'GitHub Sync'); }
 }
 
 // ===================== Settings Panel =====================
@@ -233,71 +233,71 @@ function buildSettingsHtml() {
 
         // Repo Config
         '<div class="inline-drawer">',
-        '<div class="inline-drawer-toggle inline-drawer-header"><b>Repository Configuration</b>',
+        '<div class="inline-drawer-toggle inline-drawer-header"><b>仓库配置</b>',
         '<div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div>',
         '<div class="inline-drawer-content" style="padding:8px 12px;">',
-        '<div class="form-group"><label>GitHub Repository <small>(username/repo-name)</small></label>',
-        '<input type="text" id="sync-github-repo" class="text_pole" placeholder="username/my-sync-repo"></div>',
-        '<div class="form-group"><label>Branch</label>',
+        '<div class="form-group"><label>GitHub 仓库 <small>(用户名/仓库名)</small></label>',
+        '<input type="text" id="sync-github-repo" class="text_pole" placeholder="用户名/仓库名"></div>',
+        '<div class="form-group"><label>分支</label>',
         '<input type="text" id="sync-branch" class="text_pole" placeholder="main"></div>',
-        '<div class="form-group"><label>Personal Access Token</label>',
+        '<div class="form-group"><label>个人访问令牌 (Token)</label>',
         '<div class="sync-token-row">',
         '<input type="password" id="sync-github-token" class="text_pole" placeholder="ghp_...">',
         '<button id="sync-toggle-token" class="btn btn-sm" type="button"><span class="fa fa-eye"></span></button></div>',
-        '<small>Requires <code>repo</code> scope.</small></div>',
-        '<button id="sync-test-connection" class="btn btn-secondary" style="margin-top:6px;">Test Connection</button>',
+        '<small>需要 <code>repo</code> 权限。</small></div>',
+        '<button id="sync-test-connection" class="btn btn-secondary" style="margin-top:6px;">测试连接</button>',
         '<span id="sync-test-result"></span></div></div>',
 
         // Data Selection
         '<div class="inline-drawer">',
-        '<div class="inline-drawer-toggle inline-drawer-header"><b>Data to Sync</b>',
+        '<div class="inline-drawer-toggle inline-drawer-header"><b>同步数据选择</b>',
         '<div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div>',
         '<div class="inline-drawer-content" style="padding:8px 12px;"><div class="sync-checkbox-grid">',
-        '<label class="checkbox_label"><input type="checkbox" id="sync-data-characters">Characters</label>',
-        '<label class="checkbox_label"><input type="checkbox" id="sync-data-chats">Chats</label>',
-        '<label class="checkbox_label"><input type="checkbox" id="sync-data-worlds">Worlds</label>',
-        '<label class="checkbox_label"><input type="checkbox" id="sync-data-groups">Groups</label>',
-        '<label class="checkbox_label"><input type="checkbox" id="sync-data-settings">Settings</label>',
-        '<label class="checkbox_label"><input type="checkbox" id="sync-data-presets">Presets</label>',
-        '<label class="checkbox_label"><input type="checkbox" id="sync-data-personas">Personas</label>',
-        '<label class="checkbox_label"><input type="checkbox" id="sync-data-backgrounds">Backgrounds</label>',
-        '<label class="checkbox_label"><input type="checkbox" id="sync-data-themes">Themes</label>',
+        '<label class="checkbox_label"><input type="checkbox" id="sync-data-characters">角色 (Characters)</label>',
+        '<label class="checkbox_label"><input type="checkbox" id="sync-data-chats">聊天 (Chats)</label>',
+        '<label class="checkbox_label"><input type="checkbox" id="sync-data-worlds">世界书 (Worlds)</label>',
+        '<label class="checkbox_label"><input type="checkbox" id="sync-data-groups">群组 (Groups)</label>',
+        '<label class="checkbox_label"><input type="checkbox" id="sync-data-settings">设置 (Settings)</label>',
+        '<label class="checkbox_label"><input type="checkbox" id="sync-data-presets">预设 (Presets)</label>',
+        '<label class="checkbox_label"><input type="checkbox" id="sync-data-personas">人格 (Personas)</label>',
+        '<label class="checkbox_label"><input type="checkbox" id="sync-data-backgrounds">背景 (Backgrounds)</label>',
+        '<label class="checkbox_label"><input type="checkbox" id="sync-data-themes">主题 (Themes)</label>',
         '</div></div></div>',
 
         // Auto Push
         '<div class="inline-drawer">',
-        '<div class="inline-drawer-toggle inline-drawer-header"><b>Auto-Push</b>',
+        '<div class="inline-drawer-toggle inline-drawer-header"><b>自动推送</b>',
         '<div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div>',
         '<div class="inline-drawer-content" style="padding:8px 12px;">',
-        '<label class="checkbox_label"><input type="checkbox" id="sync-autopush-enabled">Enable automatic push</label>',
-        '<div class="form-group"><label>Interval (minutes, min 5)</label>',
+        '<label class="checkbox_label"><input type="checkbox" id="sync-autopush-enabled">启用自动推送</label>',
+        '<div class="form-group"><label>间隔时间（分钟，最少 5）</label>',
         '<input type="number" id="sync-autopush-interval" class="text_pole" min="5" value="30" step="5"></div>',
         '</div></div>',
 
         // Auto Backup
         '<div class="inline-drawer">',
-        '<div class="inline-drawer-toggle inline-drawer-header"><b>Backup</b>',
+        '<div class="inline-drawer-toggle inline-drawer-header"><b>备份</b>',
         '<div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div>',
         '<div class="inline-drawer-content" style="padding:8px 12px;">',
-        '<label class="checkbox_label"><input type="checkbox" id="sync-autobackup-enabled">Auto-backup before pull</label>',
-        '<div class="form-group"><label>Max backups (1-50)</label>',
+        '<label class="checkbox_label"><input type="checkbox" id="sync-autobackup-enabled">拉取前自动备份</label>',
+        '<div class="form-group"><label>保留备份数量（1-50）</label>',
         '<input type="number" id="sync-autobackup-max" class="text_pole" min="1" max="50" value="5"></div>',
-        '<button id="sync-backup-now" class="btn btn-secondary">Create Backup Now</button>',
+        '<button id="sync-backup-now" class="btn btn-secondary">手动备份</button>',
         '<div id="sync-backup-list" style="margin-top:8px;max-height:150px;overflow-y:auto;"></div>',
         '</div></div>',
 
         // Controls & Log
         '<div class="inline-drawer">',
-        '<div class="inline-drawer-toggle inline-drawer-header"><b>Controls & Status</b>',
+        '<div class="inline-drawer-toggle inline-drawer-header"><b>操作与状态</b>',
         '<div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div>',
         '<div class="inline-drawer-content" style="padding:8px 12px;">',
         '<div class="sync-controls">',
-        '<button id="sync-push-now" class="btn btn-primary">Push Now</button>',
-        '<button id="sync-pull-now" class="btn btn-primary">Pull Now</button>',
-        '<span class="sync-status-label">Status: <span id="sync-status-indicator">Checking...</span></span>',
+        '<button id="sync-push-now" class="btn btn-primary">立即推送</button>',
+        '<button id="sync-pull-now" class="btn btn-primary">立即拉取</button>',
+        '<span class="sync-status-label">状态：<span id="sync-status-indicator">检查中...</span></span>',
         '</div>',
-        '<h4 style="margin-top:12px;">Sync Log</h4>',
-        '<div id="sync-log-container" class="sync-log"><div class="sync-log-entry">Loading...</div></div>',
+        '<h4 style="margin-top:12px;">同步日志</h4>',
+        '<div id="sync-log-container" class="sync-log"><div class="sync-log-entry">加载中...</div></div>',
         '</div></div>',
 
         '</div>', // end panel
@@ -424,16 +424,16 @@ function bindSettingsEvents() {
             githubToken: $('#sync-github-token').val().trim(),
         });
         var $r = $('#sync-test-result');
-        $r.text('Testing...').css('color', '#f0ad4e');
+        $r.text('测试中...').css('color', '#f0ad4e');
         try {
             var data = await apiCall('GET', '/validate');
             if (data.valid) {
-                $r.text(data.message || 'Connection OK').css('color', '#5cb85c');
+                $r.text(data.message || '连接成功').css('color', '#5cb85c');
             } else {
-                $r.text('Failed: ' + (data.errors || ['Unknown']).join(', ')).css('color', '#d9534f');
+                $r.text('失败: ' + (data.errors || ['未知错误']).join(', ')).css('color', '#d9534f');
             }
         } catch (err) {
-            $r.text('Error: ' + err.message).css('color', '#d9534f');
+            $r.text('错误: ' + err.message).css('color', '#d9534f');
         }
     });
 
@@ -444,31 +444,31 @@ function bindSettingsEvents() {
     // Backup
     $('#sync-backup-now').on('click', async function () {
         try {
-            toastr.info('Creating backup...', 'GitHub Sync');
+            toastr.info('正在创建备份...', 'GitHub Sync');
             var data = await apiCall('POST', '/backup/create');
             if (data.message) { toastr.info(data.message, 'GitHub Sync'); }
-            else { toastr.success('Backup created: ' + (data.sizeFormatted || ''), 'GitHub Sync'); }
+            else { toastr.success('备份已创建: ' + (data.sizeFormatted || ''), 'GitHub Sync'); }
             loadBackupList();
-        } catch (err) { toastr.error('Backup failed: ' + err.message, 'GitHub Sync'); }
+        } catch (err) { toastr.error('备份失败: ' + err.message, 'GitHub Sync'); }
     });
     $('#sync-backup-list').on('click', '.sync-backup-restore', async function () {
         var id = $(this).data('id');
-        var confirmed = await showConfirmDialog('Restore Backup?', 'This will overwrite current data with the backup from ' + id.replace(/T/g, ' ').substring(0, 16) + '. Continue?');
+        var confirmed = await showConfirmDialog('确认恢复备份？', '将用备份（' + id.replace(/T/g, ' ').substring(0, 16) + '）覆盖当前数据。是否继续？');
         if (!confirmed) return;
         try {
-            toastr.info('Restoring backup...', 'GitHub Sync');
+            toastr.info('正在恢复备份...', 'GitHub Sync');
             var data = await apiCall('POST', '/backup/restore', { backupId: id });
-            toastr.success('Restored: ' + data.restored.join(', '), 'GitHub Sync');
+            toastr.success('已恢复: ' + data.restored.join(', '), 'GitHub Sync');
             refreshAllUI();
-        } catch (err) { toastr.error('Restore failed: ' + err.message, 'GitHub Sync'); }
+        } catch (err) { toastr.error('恢复失败: ' + err.message, 'GitHub Sync'); }
     });
     $('#sync-backup-list').on('click', '.sync-backup-delete', async function () {
         var id = $(this).data('id');
         try {
             await apiCall('DELETE', '/backup/' + encodeURIComponent(id));
-            toastr.info('Backup deleted.', 'GitHub Sync');
+            toastr.info('备份已删除。', 'GitHub Sync');
             loadBackupList();
-        } catch (err) { toastr.error('Delete failed: ' + err.message, 'GitHub Sync'); }
+        } catch (err) { toastr.error('删除失败: ' + err.message, 'GitHub Sync'); }
     });
 
     // Auto refresh
@@ -521,27 +521,27 @@ $(function () {
         SlashCommandParser.addCommandObject(SlashCommand.fromProps({
             name: 'sync-push',
             callback: doPush,
-            helpString: 'Push SillyTavern data to the configured GitHub repository.',
+            helpString: '将 SillyTavern 数据推送到配置的 GitHub 仓库。',
         }));
         SlashCommandParser.addCommandObject(SlashCommand.fromProps({
             name: 'sync-pull',
             callback: doPull,
-            helpString: 'Pull the latest data from the configured GitHub repository and restore it locally.',
+            helpString: '从 GitHub 仓库拉取最新数据并恢复到本地。',
         }));
         SlashCommandParser.addCommandObject(SlashCommand.fromProps({
             name: 'sync-status',
             callback: doStatus,
-            helpString: 'Display current GitHub sync configuration and recent operations.',
+            helpString: '显示当前同步状态和最近的操作日志。',
         }));
         SlashCommandParser.addCommandObject(SlashCommand.fromProps({
             name: 'sync-backups',
             callback: doBackups,
-            helpString: 'List all local backups created before pull operations.',
+            helpString: '列出所有本地备份。',
         }));
         SlashCommandParser.addCommandObject(SlashCommand.fromProps({
             name: 'sync-restore',
             callback: doRestore,
-            helpString: 'Restore data from a backup. Usage: /sync-restore <number> (use /sync-backups to list).',
+            helpString: '从备份恢复数据。用法: /sync-restore <序号>（先用 /sync-backups 查看列表）。',
             unnamedArgument: { name: 'N', type: 'integer', isRequired: true },
         }));
 
@@ -555,7 +555,7 @@ $(function () {
         // Create floating button
         createFloatButton();
 
-        console.log('[GitHub-Data-Sync] Initialized. Slash commands: /sync-push /sync-pull /sync-status');
+        console.log('[GitHub-Data-Sync] 初始化完成。斜杠命令: /sync-push /sync-pull /sync-status /sync-backups /sync-restore');
     } catch (err) {
         console.error('[GitHub-Data-Sync] Init failed:', err);
     }
