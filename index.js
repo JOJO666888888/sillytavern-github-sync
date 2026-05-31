@@ -3,6 +3,7 @@ const fs = require('fs-extra');
 const gitOps = require('./lib/git-ops');
 const syncEngine = require('./lib/sync-engine');
 const syncConfig = require('./lib/sync-config');
+const backup = require('./lib/backup');
 
 const PLUGIN_ID = 'github-data-sync';
 const SYNC_DIR_NAME = '.github-data-sync';
@@ -94,6 +95,19 @@ async function executePull() {
     try {
         const v = syncConfig.validateConfig(config);
         if (!v.valid) throw Object.assign(new Error(v.errors.join(' ')), { statusCode: 400, code: 'INVALID_CONFIG' });
+
+        // Auto-backup before pull
+        let backupResult = null;
+        if (config.autoBackup?.enabled) {
+            try {
+                backupResult = await backup.createBackup(config, stDataRoot);
+                if (backupResult) {
+                    addLogEntry('info', 'Backup created', `${backupResult.categories.length} categories, ${backup.formatSize(backupResult.size)}`);
+                }
+            } catch (err) {
+                addLogEntry('warning', 'Backup failed', err.message);
+            }
+        }
 
         await ensureRepo();
         const result = await syncEngine.pullData(config, syncDir, stDataRoot);
@@ -230,6 +244,61 @@ async function init(router) {
         try {
             const result = await validateConnection();
             res.json({ success: true, ...result });
+        } catch (err) {
+            res.status(500).json({ success: false, error: err.message });
+        }
+    });
+
+    router.get('/backups', async (_req, res) => {
+        try {
+            const backups = await backup.listBackups(stDataRoot);
+            const result = backups.map(b => ({
+                id: b.id,
+                categories: b.categories,
+                size: b.size,
+                sizeFormatted: backup.formatSize(b.size),
+                timestamp: b.timestamp,
+            }));
+            res.json({ success: true, backups: result });
+        } catch (err) {
+            res.status(500).json({ success: false, error: err.message });
+        }
+    });
+
+    router.post('/backup/create', async (_req, res) => {
+        try {
+            const result = await backup.createBackup(config, stDataRoot);
+            if (!result) {
+                res.json({ success: true, message: 'No data to back up.' });
+                return;
+            }
+            addLogEntry('info', 'Manual backup created', `${result.categories.length} categories, ${backup.formatSize(result.size)}`);
+            res.json({ success: true, ...result, sizeFormatted: backup.formatSize(result.size) });
+        } catch (err) {
+            res.status(500).json({ success: false, error: err.message });
+        }
+    });
+
+    router.post('/backup/restore', async (req, res) => {
+        try {
+            const { backupId } = req.body || {};
+            if (!backupId) {
+                res.status(400).json({ success: false, error: 'backupId is required.' });
+                return;
+            }
+            const result = await backup.restoreBackup(backupId, config, stDataRoot);
+            addLogEntry('success', 'Backup restored', `${result.restored.join(', ')}`);
+            res.json({ success: true, ...result });
+        } catch (err) {
+            res.status(500).json({ success: false, error: err.message });
+        }
+    });
+
+    router.delete('/backup/:id', async (req, res) => {
+        try {
+            await backup.deleteBackup(req.params.id, stDataRoot);
+            addLogEntry('info', 'Backup deleted', req.params.id);
+            res.json({ success: true });
         } catch (err) {
             res.status(500).json({ success: false, error: err.message });
         }

@@ -166,6 +166,64 @@ async function refreshAllUI() {
     } catch (e) { /* ignore */ }
 }
 
+// ===================== Backup Management =====================
+
+async function loadBackupList() {
+    try {
+        var data = await apiCall('GET', '/backups');
+        var $list = $('#sync-backup-list');
+        if (!data.backups || data.backups.length === 0) {
+            $list.html('<div style="color:#777;font-size:12px;">No backups yet.</div>');
+            return;
+        }
+        var html = data.backups.map(function (b) {
+            var ts = b.id.replace(/T/g, ' ').substring(0,16);
+            return '<div style="display:flex;align-items:center;gap:4px;padding:3px 0;border-bottom:1px solid #222;font-size:12px;">' +
+                '<span style="flex:1;color:#ccc;">' + escapeHtml(ts) + ' (' + escapeHtml(b.sizeFormatted) + ')</span>' +
+                '<button class="btn btn-sm sync-backup-restore" data-id="' + escapeHtml(b.id) + '" title="Restore">Restore</button>' +
+                '<button class="btn btn-sm sync-backup-delete" data-id="' + escapeHtml(b.id) + '" title="Delete">Del</button>' +
+                '</div>';
+        }).join('');
+        $list.html(html);
+    } catch { /* ignore */ }
+}
+
+async function doBackups() {
+    try {
+        var data = await apiCall('GET', '/backups');
+        if (!data.backups || data.backups.length === 0) {
+            toastr.info('No backups found.', 'GitHub Sync');
+            return;
+        }
+        var msg = 'Backups:\n' + data.backups.map(function (b, i) {
+            return '[' + (i + 1) + '] ' + b.id.replace(/T/g, ' ').substring(0, 16) + ' - ' + b.sizeFormatted + ' (' + b.categories.join(', ') + ')';
+        }).join('\n');
+        toastr.info(msg, 'GitHub Sync', { timeOut: 15000 });
+    } catch (err) { toastr.error('Failed: ' + err.message, 'GitHub Sync'); }
+}
+
+async function doRestore(index) {
+    try {
+        var data = await apiCall('GET', '/backups');
+        if (!data.backups || data.backups.length === 0) {
+            toastr.info('No backups found.', 'GitHub Sync');
+            return;
+        }
+        var idx = (typeof index === 'number') ? index - 1 : 0;
+        if (idx < 0 || idx >= data.backups.length) {
+            toastr.error('Invalid backup index. Use /sync-backups to list.', 'GitHub Sync');
+            return;
+        }
+        var backupId = data.backups[idx].id;
+        var confirmed = await showConfirmDialog('Restore Backup?', 'Overwrite current data with backup from ' + backupId.replace(/T/g, ' ').substring(0, 16) + '?');
+        if (!confirmed) return;
+        toastr.info('Restoring backup...', 'GitHub Sync');
+        var result = await apiCall('POST', '/backup/restore', { backupId: backupId });
+        toastr.success('Restored: ' + result.restored.join(', '), 'GitHub Sync');
+        refreshAllUI();
+    } catch (err) { toastr.error('Restore failed: ' + err.message, 'GitHub Sync'); }
+}
+
 // ===================== Settings Panel =====================
 
 function buildSettingsHtml() {
@@ -214,6 +272,18 @@ function buildSettingsHtml() {
         '<label class="checkbox_label"><input type="checkbox" id="sync-autopush-enabled">Enable automatic push</label>',
         '<div class="form-group"><label>Interval (minutes, min 5)</label>',
         '<input type="number" id="sync-autopush-interval" class="text_pole" min="5" value="30" step="5"></div>',
+        '</div></div>',
+
+        // Auto Backup
+        '<div class="inline-drawer">',
+        '<div class="inline-drawer-toggle inline-drawer-header"><b>Backup</b>',
+        '<div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div>',
+        '<div class="inline-drawer-content" style="padding:8px 12px;">',
+        '<label class="checkbox_label"><input type="checkbox" id="sync-autobackup-enabled">Auto-backup before pull</label>',
+        '<div class="form-group"><label>Max backups (1-50)</label>',
+        '<input type="number" id="sync-autobackup-max" class="text_pole" min="1" max="50" value="5"></div>',
+        '<button id="sync-backup-now" class="btn btn-secondary">Create Backup Now</button>',
+        '<div id="sync-backup-list" style="margin-top:8px;max-height:150px;overflow-y:auto;"></div>',
         '</div></div>',
 
         // Controls & Log
@@ -296,8 +366,12 @@ function bindSettingsEvents() {
         var ap = cfg.autoPush || {};
         $('#sync-autopush-enabled').prop('checked', ap.enabled === true);
         $('#sync-autopush-interval').val(ap.intervalMinutes || 30);
+        var ab = cfg.autoBackup || {};
+        $('#sync-autobackup-enabled').prop('checked', ab.enabled !== false);
+        $('#sync-autobackup-max').val(ab.maxBackups || 5);
         $('#sync-pull-confirmation').prop('checked', cfg.pullConfirmation !== false);
         refreshAllUI();
+        loadBackupList();
     });
 
     // Debounced save
@@ -321,6 +395,10 @@ function bindSettingsEvents() {
             autoPush: {
                 enabled: $('#sync-autopush-enabled').is(':checked'),
                 intervalMinutes: parseInt($('#sync-autopush-interval').val()) || 30,
+            },
+            autoBackup: {
+                enabled: $('#sync-autobackup-enabled').is(':checked'),
+                maxBackups: parseInt($('#sync-autobackup-max').val()) || 5,
             },
             pullConfirmation: $('#sync-pull-confirmation').is(':checked'),
         });
@@ -362,6 +440,36 @@ function bindSettingsEvents() {
     // Manual buttons
     $('#sync-push-now').on('click', doPush);
     $('#sync-pull-now').on('click', doPull);
+
+    // Backup
+    $('#sync-backup-now').on('click', async function () {
+        try {
+            toastr.info('Creating backup...', 'GitHub Sync');
+            var data = await apiCall('POST', '/backup/create');
+            if (data.message) { toastr.info(data.message, 'GitHub Sync'); }
+            else { toastr.success('Backup created: ' + (data.sizeFormatted || ''), 'GitHub Sync'); }
+            loadBackupList();
+        } catch (err) { toastr.error('Backup failed: ' + err.message, 'GitHub Sync'); }
+    });
+    $('#sync-backup-list').on('click', '.sync-backup-restore', async function () {
+        var id = $(this).data('id');
+        var confirmed = await showConfirmDialog('Restore Backup?', 'This will overwrite current data with the backup from ' + id.replace(/T/g, ' ').substring(0, 16) + '. Continue?');
+        if (!confirmed) return;
+        try {
+            toastr.info('Restoring backup...', 'GitHub Sync');
+            var data = await apiCall('POST', '/backup/restore', { backupId: id });
+            toastr.success('Restored: ' + data.restored.join(', '), 'GitHub Sync');
+            refreshAllUI();
+        } catch (err) { toastr.error('Restore failed: ' + err.message, 'GitHub Sync'); }
+    });
+    $('#sync-backup-list').on('click', '.sync-backup-delete', async function () {
+        var id = $(this).data('id');
+        try {
+            await apiCall('DELETE', '/backup/' + encodeURIComponent(id));
+            toastr.info('Backup deleted.', 'GitHub Sync');
+            loadBackupList();
+        } catch (err) { toastr.error('Delete failed: ' + err.message, 'GitHub Sync'); }
+    });
 
     // Auto refresh
     setInterval(refreshAllUI, 30000);
@@ -424,6 +532,17 @@ $(function () {
             name: 'sync-status',
             callback: doStatus,
             helpString: 'Display current GitHub sync configuration and recent operations.',
+        }));
+        SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+            name: 'sync-backups',
+            callback: doBackups,
+            helpString: 'List all local backups created before pull operations.',
+        }));
+        SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+            name: 'sync-restore',
+            callback: doRestore,
+            helpString: 'Restore data from a backup. Usage: /sync-restore <number> (use /sync-backups to list).',
+            unnamedArgument: { name: 'N', type: 'integer', isRequired: true },
         }));
 
         // Add settings panel
