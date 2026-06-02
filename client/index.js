@@ -352,7 +352,8 @@ function bindSettingsEvents() {
     loadConfig().then(function (cfg) {
         $('#sync-github-repo').val(cfg.githubRepo || '');
         $('#sync-branch').val(cfg.branch || 'main');
-        $('#sync-github-token').val(cfg.githubToken || '');
+        $('#sync-github-token').val('');
+        $('#sync-github-token').attr('placeholder', cfg.githubToken ? '(已保存，留空则不修改)' : 'ghp_...');
         var ds = cfg.dataSelection || {};
         $('#sync-data-characters').prop('checked', ds.characters !== false);
         $('#sync-data-chats').prop('checked', ds.chats !== false);

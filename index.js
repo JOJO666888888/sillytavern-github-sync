@@ -55,13 +55,13 @@ function stopAutoPush() {
 async function ensureRepo() {
     if (!(await gitOps.isRepo(syncDir))) {
         await gitOps.cloneRepo(config, syncDir);
-        addLogEntry('info', 'Repository cloned successfully.');
+        addLogEntry('info', '仓库已克隆。');
     }
 }
 
 async function executePush() {
     if (syncInProgress) {
-        throw Object.assign(new Error('A sync operation is already in progress.'), { statusCode: 409, code: 'LOCKED' });
+        throw Object.assign(new Error('同步操作正在进行中。'), { statusCode: 409, code: 'LOCKED' });
     }
     syncInProgress = true;
     try {
@@ -73,14 +73,14 @@ async function executePush() {
 
         const result = await syncEngine.pushData(config, syncDir, stDataRoot);
         if (result.skipped) {
-            addLogEntry('info', 'Push skipped - no changes.');
+            addLogEntry('info', '推送已跳过 — 没有更改。');
         } else {
-            addLogEntry('success', 'Push OK', `${result.filesChanged.length} categories (${(result.commitHash || '').substring(0, 7)})`);
+            addLogEntry('success', '推送成功', `${result.filesChanged.length} 个类别 (${(result.commitHash || '').substring(0, 7)})`);
         }
         return result;
     } catch (err) {
         const msg = gitOps.redactToken(err.message);
-        addLogEntry('error', 'Push failed', msg);
+        addLogEntry('error', '推送失败', msg);
         throw Object.assign(new Error(msg), { statusCode: err.statusCode || 500, code: err.code || 'PUSH_FAILED' });
     } finally {
         syncInProgress = false;
@@ -89,7 +89,7 @@ async function executePush() {
 
 async function executePull() {
     if (syncInProgress) {
-        throw Object.assign(new Error('A sync operation is already in progress.'), { statusCode: 409, code: 'LOCKED' });
+        throw Object.assign(new Error('同步操作正在进行中。'), { statusCode: 409, code: 'LOCKED' });
     }
     syncInProgress = true;
     try {
@@ -102,24 +102,24 @@ async function executePull() {
             try {
                 backupResult = await backup.createBackup(config, stDataRoot);
                 if (backupResult) {
-                    addLogEntry('info', 'Backup created', `${backupResult.categories.length} categories, ${backup.formatSize(backupResult.size)}`);
+                    addLogEntry('info', '备份已创建', `${backupResult.categories.length} 个类别, ${backup.formatSize(backupResult.size)}`);
                 }
             } catch (err) {
-                addLogEntry('warning', 'Backup failed', err.message);
+                addLogEntry('warning', '备份失败', err.message);
             }
         }
 
         await ensureRepo();
         const result = await syncEngine.pullData(config, syncDir, stDataRoot);
         if (result.conflicts?.length > 0) {
-            addLogEntry('warning', 'Pull had conflicts', result.conflicts.join(', '));
+            addLogEntry('warning', '拉取有冲突', result.conflicts.join(', '));
         } else {
-            addLogEntry('success', 'Pull OK', `${result.filesRestored.length} categories restored`);
+            addLogEntry('success', '拉取成功', `${result.filesRestored.length} 个类别已恢复`);
         }
         return result;
     } catch (err) {
         const msg = gitOps.redactToken(err.message);
-        addLogEntry('error', 'Pull failed', msg);
+        addLogEntry('error', '拉取失败', msg);
         throw Object.assign(new Error(msg), { statusCode: err.statusCode || 500, code: err.code || 'PULL_FAILED' });
     } finally {
         syncInProgress = false;
@@ -133,7 +133,7 @@ async function validateConnection() {
         const remoteUrl = gitOps.buildRemoteUrl(config);
         const git = require('simple-git')();
         await git.listRemote(['--heads', remoteUrl]);
-        return { valid: true, message: 'Successfully connected to repository.' };
+        return { valid: true, message: '已成功连接到仓库。' };
     } catch (err) {
         return { valid: false, errors: [gitOps.redactToken(err.message)] };
     }
@@ -163,11 +163,11 @@ async function init(router) {
             }
             if (doCopy) {
                 await fs.copy(src, dst);
-                console.log(`[github-data-sync] Deployed -> ${dst}`);
+                console.log(`[github-data-sync] 部署 -> ${dst}`);
             }
         }
     } catch (err) {
-        console.error(`[github-data-sync] Failed to deploy client files:`, err.message);
+        console.error(`[github-data-sync] 部署客户端文件失败:`, err.message);
     }
 
     // Set data paths
@@ -206,7 +206,7 @@ async function init(router) {
         try {
             let gitStatus = null;
             if (await gitOps.isRepo(syncDir)) {
-                try { gitStatus = await gitOps.getStatus(syncDir); } catch { gitStatus = { error: 'Failed to read git status' }; }
+                try { gitStatus = await gitOps.getStatus(syncDir); } catch { gitStatus = { error: '读取 git 状态失败' }; }
             }
             res.json({
                 success: true,
@@ -229,6 +229,10 @@ async function init(router) {
     router.put('/config', (req, res) => {
         try {
             const partial = req.body || {};
+            // 如果 token 为空或脱敏值（全是星号），保留原有 token
+            if (!partial.githubToken || /^\*+$/.test(partial.githubToken)) {
+                delete partial.githubToken;
+            }
             const merged = syncConfig.mergeWithDefaults({ ...config, ...partial });
             const v = syncConfig.validateConfig(merged);
             if (!v.valid) { res.status(400).json({ success: false, errors: v.errors }); return; }
@@ -269,10 +273,10 @@ async function init(router) {
         try {
             const result = await backup.createBackup(config, stDataRoot);
             if (!result) {
-                res.json({ success: true, message: 'No data to back up.' });
+                res.json({ success: true, message: '没有数据需要备份。' });
                 return;
             }
-            addLogEntry('info', 'Manual backup created', `${result.categories.length} categories, ${backup.formatSize(result.size)}`);
+            addLogEntry('info', '手动备份已创建', `${result.categories.length} 个类别, ${backup.formatSize(result.size)}`);
             res.json({ success: true, ...result, sizeFormatted: backup.formatSize(result.size) });
         } catch (err) {
             res.status(500).json({ success: false, error: err.message });
@@ -283,11 +287,11 @@ async function init(router) {
         try {
             const { backupId } = req.body || {};
             if (!backupId) {
-                res.status(400).json({ success: false, error: 'backupId is required.' });
+                res.status(400).json({ success: false, error: '需要提供 backupId。' });
                 return;
             }
             const result = await backup.restoreBackup(backupId, config, stDataRoot);
-            addLogEntry('success', 'Backup restored', `${result.restored.join(', ')}`);
+            addLogEntry('success', '备份已恢复', result.restored.join(', '));
             res.json({ success: true, ...result });
         } catch (err) {
             res.status(500).json({ success: false, error: err.message });
@@ -297,7 +301,7 @@ async function init(router) {
     router.delete('/backup/:id', async (req, res) => {
         try {
             await backup.deleteBackup(req.params.id, stDataRoot);
-            addLogEntry('info', 'Backup deleted', req.params.id);
+            addLogEntry('info', '备份已删除', req.params.id);
             res.json({ success: true });
         } catch (err) {
             res.status(500).json({ success: false, error: err.message });
@@ -310,20 +314,20 @@ async function init(router) {
         res.sendFile(filePath);
     });
 
-    console.log(`[github-data-sync] Plugin initialized. Sync dir: ${syncDir}`);
+    console.log(`[github-data-sync] 插件已初始化。同步目录: ${syncDir}`);
 }
 
 async function exit() {
     stopAutoPush();
     syncInProgress = false;
-    console.log('[github-data-sync] Plugin exited.');
+    console.log('[github-data-sync] 插件已退出。');
 }
 
 module.exports = {
     info: {
         id: 'github-data-sync',
         name: 'GitHub Data Sync',
-        description: 'Sync SillyTavern data (characters, chats, worlds, settings) with a private GitHub repository. Push/pull via slash commands or periodic auto-push.',
+        description: '将 SillyTavern 数据（角色卡、聊天、世界书、设置等）同步到 GitHub 私有仓库。',
     },
     init,
     exit,
