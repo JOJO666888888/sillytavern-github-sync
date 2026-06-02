@@ -15,6 +15,7 @@ let autoPushTimer = null;
 let syncLog = [];
 let stDataRoot = '';
 let syncDir = '';
+let configFilePath = '';
 
 function addLogEntry(type, message, details) {
     syncLog.unshift({ type, message, details, timestamp: new Date().toISOString() });
@@ -23,21 +24,38 @@ function addLogEntry(type, message, details) {
 
 function loadConfig() {
     let saved = {};
+    // 优先从独立配置文件读取（持久化存储）
     try {
-        if (global.extension_settings && global.extension_settings[PLUGIN_ID]) {
-            saved = global.extension_settings[PLUGIN_ID];
+        if (configFilePath && fs.existsSync(configFilePath)) {
+            saved = fs.readJsonSync(configFilePath);
         }
-    } catch { /* not in ST context */ }
+    } catch { /* ignore */ }
+    // 兼容：如果配置文件不存在，尝试从 extension_settings 读取
+    if (!saved || Object.keys(saved).length === 0) {
+        try {
+            if (global.extension_settings && global.extension_settings[PLUGIN_ID]) {
+                saved = global.extension_settings[PLUGIN_ID];
+            }
+        } catch { /* not in ST context */ }
+    }
     config = syncConfig.mergeWithDefaults(saved);
 }
 
 function saveConfig(newConfig) {
     config = syncConfig.mergeWithDefaults(newConfig);
+    // 同时写入 extension_settings（内存）和独立配置文件（持久化）
     try {
         if (global.extension_settings) {
             global.extension_settings[PLUGIN_ID] = config;
         }
     } catch { /* not in ST context */ }
+    try {
+        if (configFilePath) {
+            fs.writeJsonSync(configFilePath, config, { spaces: 4 });
+        }
+    } catch (err) {
+        console.error('[github-data-sync] 配置保存失败:', err.message);
+    }
 }
 
 function startAutoPush() {
@@ -173,6 +191,7 @@ async function init(router) {
     // Set data paths
     stDataRoot = path.join(stRoot, 'data', 'default-user');
     syncDir = path.join(stDataRoot, SYNC_DIR_NAME);
+    configFilePath = path.join(stDataRoot, 'github-data-sync-config.json');
     await fs.ensureDir(stDataRoot);
 
     // Load config and start auto-push if enabled
