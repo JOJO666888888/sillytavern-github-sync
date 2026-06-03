@@ -136,33 +136,37 @@ function showConfirmDialog(title, message) {
 
 // ===================== UI =====================
 
+function updateStatusUI(data) {
+    // Status indicator
+    const $s = $('#sync-status-indicator');
+    if ($s.length) {
+        if (data.syncInProgress) $s.text('同步中...').css('color', '#f0ad4e');
+        else if (!data.configValid) $s.text('未配置').css('color', '#d9534f');
+        else $s.text('就绪').css('color', '#5cb85c');
+    }
+    // Float button status
+    const dot = $('#sync-float-status');
+    if (dot.length) {
+        const cls = !data.configValid ? 'noconfig' : data.syncInProgress ? 'syncing' : 'idle';
+        dot.removeClass('idle syncing error noconfig').addClass(cls);
+    }
+    // Log
+    const $log = $('#sync-log-container');
+    if ($log.length && data.syncLog) {
+        const icons = { success: '✅', error: '❌', warning: '⚠', info: 'ℹ' };
+        const entries = data.syncLog.slice(0, 10).map(function (e) {
+            const time = new Date(e.timestamp).toLocaleTimeString();
+            const icon = icons[e.type] || '';
+            return '<div class="sync-log-entry sync-log-' + e.type + '">' + icon + ' ' + time + ' - ' + escapeHtml(e.message) + '</div>';
+        }).join('');
+        $log.html(entries || '<div class="sync-log-entry">暂无同步记录。</div>');
+    }
+}
+
 async function refreshAllUI() {
     try {
         const data = await apiCall('GET', '/status');
-        // Status indicator
-        const $s = $('#sync-status-indicator');
-        if ($s.length) {
-            if (data.syncInProgress) $s.text('同步中...').css('color', '#f0ad4e');
-            else if (!data.configValid) $s.text('未配置').css('color', '#d9534f');
-            else $s.text('就绪').css('color', '#5cb85c');
-        }
-        // Float button status
-        const dot = $('#sync-float-status');
-        if (dot.length) {
-            const cls = !data.configValid ? 'noconfig' : data.syncInProgress ? 'syncing' : 'idle';
-            dot.removeClass('idle syncing error noconfig').addClass(cls);
-        }
-        // Log
-        const $log = $('#sync-log-container');
-        if ($log.length && data.syncLog) {
-            const icons = { success: '✅', error: '❌', warning: '⚠', info: 'ℹ' };
-            const entries = data.syncLog.slice(0, 10).map(function (e) {
-                const time = new Date(e.timestamp).toLocaleTimeString();
-                const icon = icons[e.type] || '';
-                return '<div class="sync-log-entry sync-log-' + e.type + '">' + icon + ' ' + time + ' - ' + escapeHtml(e.message) + '</div>';
-            }).join('');
-            $log.html(entries || '<div class="sync-log-entry">暂无同步记录。</div>');
-        }
+        updateStatusUI(data);
     } catch (e) { /* ignore */ }
 }
 
@@ -472,8 +476,16 @@ function bindSettingsEvents() {
         } catch (err) { toastr.error('删除失败: ' + err.message, 'GitHub Sync'); }
     });
 
-    // Auto refresh
-    setInterval(refreshAllUI, 30000);
+    // Dynamic polling: 2s during sync, 30s when idle
+    (function dynamicPoll() {
+        apiCall('GET', '/status').then(function (data) {
+            updateStatusUI(data);
+            var delay = data.syncInProgress ? 2000 : 30000;
+            setTimeout(dynamicPoll, delay);
+        }).catch(function () {
+            setTimeout(dynamicPoll, 30000);
+        });
+    })();
 }
 
 function createFloatButton() {
