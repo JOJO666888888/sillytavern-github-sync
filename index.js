@@ -24,10 +24,12 @@ function addLogEntry(type, message, details) {
 
 function loadConfig() {
     let saved = {};
+    let fromFile = false;
     // 优先从独立配置文件读取（持久化存储）
     try {
         if (configFilePath && fs.existsSync(configFilePath)) {
             saved = fs.readJsonSync(configFilePath);
+            fromFile = true;
         }
     } catch { /* ignore */ }
     // 兼容：如果配置文件不存在，尝试从 extension_settings 读取
@@ -39,6 +41,13 @@ function loadConfig() {
         } catch { /* not in ST context */ }
     }
     config = syncConfig.mergeWithDefaults(saved);
+    // 迁移兼容：从内存读到配置且文件不存在时，写入文件
+    if (!fromFile && config.githubToken && config.githubRepo) {
+        try {
+            if (configFilePath) fs.writeJsonSync(configFilePath, config, { spaces: 4 });
+            console.log('[github-data-sync] 配置已从内存迁移到文件');
+        } catch { /* ignore */ }
+    }
 }
 
 function saveConfig(newConfig) {
@@ -89,7 +98,10 @@ async function executePush() {
         await ensureRepo();
         try { await gitOps.pullRepo(config, syncDir); } catch { /* first push may have no remote commits */ }
 
-        const result = await syncEngine.pushData(config, syncDir, stDataRoot);
+        const onProgress = (done, total, label) => {
+            addLogEntry('info', `推送中: ${label} (${done}/${total})`);
+        };
+        const result = await syncEngine.pushData(config, syncDir, stDataRoot, onProgress);
         if (result.skipped) {
             addLogEntry('info', '推送已跳过 — 没有更改。');
         } else {
@@ -128,7 +140,10 @@ async function executePull() {
         }
 
         await ensureRepo();
-        const result = await syncEngine.pullData(config, syncDir, stDataRoot);
+        const onProgress = (done, total, label) => {
+            addLogEntry('info', `拉取中: ${label} (${done}/${total})`);
+        };
+        const result = await syncEngine.pullData(config, syncDir, stDataRoot, onProgress);
         if (result.conflicts?.length > 0) {
             addLogEntry('warning', '拉取有冲突', result.conflicts.join(', '));
         } else {
