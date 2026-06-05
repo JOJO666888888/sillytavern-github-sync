@@ -290,6 +290,14 @@ function buildSettingsHtml() {
         '<div id="sync-backup-list" style="margin-top:8px;max-height:150px;overflow-y:auto;"></div>',
         '</div></div>',
 
+        // Float Button Toggle
+        '<div class="inline-drawer">',
+        '<div class="inline-drawer-toggle inline-drawer-header"><b>界面</b>',
+        '<div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div>',
+        '<div class="inline-drawer-content" style="padding:8px 12px;">',
+        '<label class="checkbox_label"><input type="checkbox" id="sync-float-btn-visible">显示悬浮球</label>',
+        '</div></div>',
+
         // Controls & Log
         '<div class="inline-drawer">',
         '<div class="inline-drawer-toggle inline-drawer-header"><b>操作与状态</b>',
@@ -375,6 +383,7 @@ function bindSettingsEvents() {
         $('#sync-autobackup-enabled').prop('checked', ab.enabled !== false);
         $('#sync-autobackup-max').val(ab.maxBackups || 5);
         $('#sync-pull-confirmation').prop('checked', cfg.pullConfirmation !== false);
+        $('#sync-float-btn-visible').prop('checked', isFloatButtonVisible());
         refreshAllUI();
         loadBackupList();
     });
@@ -476,6 +485,11 @@ function bindSettingsEvents() {
         } catch (err) { toastr.error('删除失败: ' + err.message, 'GitHub Sync'); }
     });
 
+    // Float button toggle
+    $('#sync-float-btn-visible').on('change', function () {
+        setFloatButtonVisible($(this).is(':checked'));
+    });
+
     // Dynamic polling: 2s during sync, 30s when idle
     (function dynamicPoll() {
         apiCall('GET', '/status').then(function (data) {
@@ -488,8 +502,24 @@ function bindSettingsEvents() {
     })();
 }
 
+function isFloatButtonVisible() {
+    return localStorage.getItem('github-data-sync-float-btn') !== 'hidden';
+}
+
+function setFloatButtonVisible(visible) {
+    localStorage.setItem('github-data-sync-float-btn', visible ? 'visible' : 'hidden');
+    var $btn = $('#sync-float-btn');
+    if (visible) {
+        if (!$btn.length) createFloatButton();
+        else $btn.show();
+    } else {
+        $btn.hide();
+    }
+}
+
 function createFloatButton() {
     if ($('#sync-float-btn').length) return;
+    if (!isFloatButtonVisible()) return;
     var html = [
         '<div id="sync-float-btn" title="GitHub Data Sync">',
         '<div class="sync-float-icon">',
