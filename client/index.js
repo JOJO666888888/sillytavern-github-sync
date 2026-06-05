@@ -1,7 +1,5 @@
 // GitHub Data Sync - Frontend Extension for SillyTavern
 // Auto-deployed to: public/scripts/extensions/third-party/github-data-sync/index.js
-import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.js';
-import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
 
 const API_BASE = '/api/plugins/github-data-sync';
 
@@ -566,44 +564,49 @@ $(function () {
     $('head').append('<style>' + FLOAT_BUTTON_CSS + '</style>');
     createFloatButton();
 
+    // Add settings panel
     try {
-        // Register slash commands using the proper API
-        SlashCommandParser.addCommandObject(SlashCommand.fromProps({
-            name: 'sync-push',
-            callback: doPush,
-            helpString: '将 SillyTavern 数据推送到配置的 GitHub 仓库。',
-        }));
-        SlashCommandParser.addCommandObject(SlashCommand.fromProps({
-            name: 'sync-pull',
-            callback: doPull,
-            helpString: '从 GitHub 仓库拉取最新数据并恢复到本地。',
-        }));
-        SlashCommandParser.addCommandObject(SlashCommand.fromProps({
-            name: 'sync-status',
-            callback: doStatus,
-            helpString: '显示当前同步状态和最近的操作日志。',
-        }));
-        SlashCommandParser.addCommandObject(SlashCommand.fromProps({
-            name: 'sync-backups',
-            callback: doBackups,
-            helpString: '列出所有本地备份。',
-        }));
-        SlashCommandParser.addCommandObject(SlashCommand.fromProps({
-            name: 'sync-restore',
-            callback: doRestore,
-            helpString: '从备份恢复数据。用法: /sync-restore <序号>（先用 /sync-backups 查看列表）。',
-            unnamedArgument: { name: 'N', type: 'integer', isRequired: true },
-        }));
-
-        // Add settings panel
         var $target = $('#extensions_settings');
         if (!$target.length) $target = $('#extensions_settings_container');
         if (!$target.length) $target = $('body');
         $target.append(buildSettingsHtml());
         bindSettingsEvents();
-
-        console.log('[GitHub-Data-Sync] 初始化完成。斜杠命令: /sync-push /sync-pull /sync-status /sync-backups /sync-restore');
     } catch (err) {
-        console.error('[GitHub-Data-Sync] Init failed:', err);
+        console.error('[GitHub-Data-Sync] Settings panel init failed:', err);
     }
+
+    // Register slash commands via dynamic import (may not exist in all ST versions)
+    Promise.all([
+        import('../../../slash-commands/SlashCommandParser.js'),
+        import('../../../slash-commands/SlashCommand.js'),
+    ]).then(function (modules) {
+        var SlashCommandParser = modules[0].SlashCommandParser;
+        var SlashCommand = modules[1].SlashCommand;
+        SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+            name: 'sync-push', callback: doPush,
+            helpString: '将 SillyTavern 数据推送到配置的 GitHub 仓库。',
+        }));
+        SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+            name: 'sync-pull', callback: doPull,
+            helpString: '从 GitHub 仓库拉取最新数据并恢复到本地。',
+        }));
+        SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+            name: 'sync-status', callback: doStatus,
+            helpString: '显示当前同步状态和最近的操作日志。',
+        }));
+        SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+            name: 'sync-backups', callback: doBackups,
+            helpString: '列出所有本地备份。',
+        }));
+        SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+            name: 'sync-restore', callback: doRestore,
+            helpString: '从备份恢复数据。用法: /sync-restore <序号>（先用 /sync-backups 查看列表）。',
+            unnamedArgument: { name: 'N', type: 'integer', isRequired: true },
+        }));
+        console.log('[GitHub-Data-Sync] 斜杠命令已注册: /sync-push /sync-pull /sync-status /sync-backups /sync-restore');
+    }).catch(function (err) {
+        console.warn('[GitHub-Data-Sync] 斜杠命令注册失败（不影响核心功能）:', err.message);
+    });
+
+    console.log('[GitHub-Data-Sync] 初始化完成。');
 });
