@@ -3,28 +3,6 @@
 
 const API_BASE = '/api/plugins/github-data-sync';
 
-// Float button CSS — injected early so the button works even if settings panel init fails
-const FLOAT_BUTTON_CSS = [
-    '#sync-float-btn{position:fixed;bottom:80px;right:20px;width:48px;height:48px;background:#2a2a2a;border:2px solid #555;border-radius:50%;cursor:pointer;z-index:9999;display:flex;align-items:center;justify-content:center;transition:all 0.2s;box-shadow:0 2px 8px rgba(0,0,0,0.4);}',
-    '#sync-float-btn:hover{border-color:#888;background:#333;}',
-    '.sync-float-icon{color:#ccc;display:flex;align-items:center;justify-content:center;}',
-    '#sync-float-status{position:absolute;bottom:2px;right:2px;width:12px;height:12px;border-radius:50%;border:2px solid #1a1a1a;}',
-    '#sync-float-status.idle{background:#5cb85c;} #sync-float-status.syncing{background:#f0ad4e;animation:sync-pulse 0.8s infinite;}',
-    '#sync-float-status.error{background:#d9534f;} #sync-float-status.noconfig{background:#777;}',
-    '@keyframes sync-pulse{0%,100%{opacity:1}50%{opacity:0.3}}',
-    '#sync-float-menu{position:fixed;bottom:136px;right:20px;background:#2a2a2a;border:1px solid #555;border-radius:8px;padding:4px 0;z-index:9998;display:none;min-width:150px;box-shadow:0 4px 12px rgba(0,0,0,0.5);}',
-    '#sync-float-menu.show{display:block;}',
-    '.sync-float-menu-item{padding:8px 16px;cursor:pointer;color:#ccc;font-size:13px;display:flex;align-items:center;gap:8px;transition:background 0.15s;}',
-    '.sync-float-menu-item:hover{background:#3a3a3a;color:#fff;}',
-    '.sync-float-menu-item span{font-size:16px;}',
-    // Dialog (needed by showConfirmDialog used in float menu actions)
-    '.dialog-modal{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:99999;}',
-    '.dialog-content{background:#2a2a2a;border:1px solid #555;border-radius:8px;padding:20px;max-width:400px;width:90%;}',
-    '.dialog-content h4{margin:0 0 8px 0;color:#fff;}',
-    '.dialog-content p{margin:0 0 16px 0;color:#ccc;}',
-    '.dialog-buttons{display:flex;gap:8px;justify-content:flex-end;}',
-].join('');
-
 // ===================== API helpers =====================
 
 let _csrfToken = null;
@@ -163,12 +141,6 @@ function updateStatusUI(data) {
         if (data.syncInProgress) $s.text('同步中...').css('color', '#f0ad4e');
         else if (!data.configValid) $s.text('未配置').css('color', '#d9534f');
         else $s.text('就绪').css('color', '#5cb85c');
-    }
-    // Float button status
-    const dot = $('#sync-float-status');
-    if (dot.length) {
-        const cls = !data.configValid ? 'noconfig' : data.syncInProgress ? 'syncing' : 'idle';
-        dot.removeClass('idle syncing error noconfig').addClass(cls);
     }
     // Log
     const $log = $('#sync-log-container');
@@ -310,14 +282,6 @@ function buildSettingsHtml() {
         '<div id="sync-backup-list" style="margin-top:8px;max-height:150px;overflow-y:auto;"></div>',
         '</div></div>',
 
-        // Float Button Toggle
-        '<div class="inline-drawer">',
-        '<div class="inline-drawer-toggle inline-drawer-header"><b>界面</b>',
-        '<div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div>',
-        '<div class="inline-drawer-content" style="padding:8px 12px;">',
-        '<label class="checkbox_label"><input type="checkbox" id="sync-float-btn-visible">显示悬浮球</label>',
-        '</div></div>',
-
         // Controls & Log
         '<div class="inline-drawer">',
         '<div class="inline-drawer-toggle inline-drawer-header"><b>操作与状态</b>',
@@ -353,6 +317,12 @@ function buildSettingsHtml() {
         '.sync-log-error{color:#d9534f;} .sync-log-success{color:#5cb85c;}',
         '.sync-log-warning{color:#f0ad4e;} .sync-log-info{color:#aaa;}',
         '#sync-test-result{margin-left:8px;font-size:13px;}',
+        // Dialog
+        '.dialog-modal{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:99999;}',
+        '.dialog-content{background:#2a2a2a;border:1px solid #555;border-radius:8px;padding:20px;max-width:400px;width:90%;}',
+        '.dialog-content h4{margin:0 0 8px 0;color:#fff;}',
+        '.dialog-content p{margin:0 0 16px 0;color:#ccc;}',
+        '.dialog-buttons{display:flex;gap:8px;justify-content:flex-end;}',
         '</style>',
     ].join('');
 }
@@ -384,7 +354,6 @@ function bindSettingsEvents() {
         $('#sync-autobackup-enabled').prop('checked', ab.enabled !== false);
         $('#sync-autobackup-max').val(ab.maxBackups || 5);
         $('#sync-pull-confirmation').prop('checked', cfg.pullConfirmation !== false);
-        $('#sync-float-btn-visible').prop('checked', isFloatButtonVisible());
         refreshAllUI();
         loadBackupList();
     });
@@ -486,11 +455,6 @@ function bindSettingsEvents() {
         } catch (err) { toastr.error('删除失败: ' + err.message, 'GitHub Sync'); }
     });
 
-    // Float button toggle
-    $('#sync-float-btn-visible').on('change', function () {
-        setFloatButtonVisible($(this).is(':checked'));
-    });
-
     // Dynamic polling: 2s during sync, 30s when idle
     (function dynamicPoll() {
         apiCall('GET', '/status').then(function (data) {
@@ -503,67 +467,9 @@ function bindSettingsEvents() {
     })();
 }
 
-function isFloatButtonVisible() {
-    return localStorage.getItem('github-data-sync-float-btn') !== 'hidden';
-}
-
-function setFloatButtonVisible(visible) {
-    localStorage.setItem('github-data-sync-float-btn', visible ? 'visible' : 'hidden');
-    var $btn = $('#sync-float-btn');
-    if (visible) {
-        if (!$btn.length) createFloatButton();
-        else $btn.show();
-    } else {
-        $btn.hide();
-    }
-}
-
-function createFloatButton() {
-    if ($('#sync-float-btn').length) return;
-    if (!isFloatButtonVisible()) return;
-    var html = [
-        '<div id="sync-float-btn" title="GitHub Data Sync">',
-        '<div class="sync-float-icon">',
-        '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">',
-        '<circle cx="12" cy="12" r="10"/>',
-        '<polyline points="12 6 12 18"/>',
-        '<polyline points="8 10 12 6 16 10"/>',
-        '</svg></div>',
-        '<div id="sync-float-status"></div>',
-        '<div id="sync-float-menu">',
-        '<div class="sync-float-menu-item" data-action="push"><span>&#128228;</span> Push Now</div>',
-        '<div class="sync-float-menu-item" data-action="pull"><span>&#128229;</span> Pull Now</div>',
-        '<div class="sync-float-menu-item" data-action="status"><span>&#8505;</span> Status</div>',
-        '</div></div>'
-    ].join('');
-    $('body').append(html);
-
-    $('#sync-float-btn').on('click', function (e) {
-        e.stopPropagation();
-        $('#sync-float-menu').toggleClass('show');
-    });
-    $('#sync-float-menu').on('click', '[data-action]', function (e) {
-        e.stopPropagation();
-        $('#sync-float-menu').removeClass('show');
-        var action = $(this).data('action');
-        if (action === 'push') doPush();
-        else if (action === 'pull') doPull();
-        else if (action === 'status') doStatus();
-    });
-    $(document).on('click', function () {
-        $('#sync-float-menu').removeClass('show');
-    });
-
-    refreshAllUI();
-}
-
 // ===================== MAIN INIT (DOM ready) =====================
 
 $(function () {
-    // Float button — independent of slash commands / settings panel
-    $('head').append('<style>' + FLOAT_BUTTON_CSS + '</style>');
-    createFloatButton();
-
     // Add settings panel
     try {
         var $target = $('#extensions_settings');
