@@ -5,6 +5,28 @@ import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
 
 const API_BASE = '/api/plugins/github-data-sync';
 
+// Float button CSS — injected early so the button works even if settings panel init fails
+const FLOAT_BUTTON_CSS = [
+    '#sync-float-btn{position:fixed;bottom:80px;right:20px;width:48px;height:48px;background:#2a2a2a;border:2px solid #555;border-radius:50%;cursor:pointer;z-index:9999;display:flex;align-items:center;justify-content:center;transition:all 0.2s;box-shadow:0 2px 8px rgba(0,0,0,0.4);}',
+    '#sync-float-btn:hover{border-color:#888;background:#333;}',
+    '.sync-float-icon{color:#ccc;display:flex;align-items:center;justify-content:center;}',
+    '#sync-float-status{position:absolute;bottom:2px;right:2px;width:12px;height:12px;border-radius:50%;border:2px solid #1a1a1a;}',
+    '#sync-float-status.idle{background:#5cb85c;} #sync-float-status.syncing{background:#f0ad4e;animation:sync-pulse 0.8s infinite;}',
+    '#sync-float-status.error{background:#d9534f;} #sync-float-status.noconfig{background:#777;}',
+    '@keyframes sync-pulse{0%,100%{opacity:1}50%{opacity:0.3}}',
+    '#sync-float-menu{position:fixed;bottom:136px;right:20px;background:#2a2a2a;border:1px solid #555;border-radius:8px;padding:4px 0;z-index:9998;display:none;min-width:150px;box-shadow:0 4px 12px rgba(0,0,0,0.5);}',
+    '#sync-float-menu.show{display:block;}',
+    '.sync-float-menu-item{padding:8px 16px;cursor:pointer;color:#ccc;font-size:13px;display:flex;align-items:center;gap:8px;transition:background 0.15s;}',
+    '.sync-float-menu-item:hover{background:#3a3a3a;color:#fff;}',
+    '.sync-float-menu-item span{font-size:16px;}',
+    // Dialog (needed by showConfirmDialog used in float menu actions)
+    '.dialog-modal{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:99999;}',
+    '.dialog-content{background:#2a2a2a;border:1px solid #555;border-radius:8px;padding:20px;max-width:400px;width:90%;}',
+    '.dialog-content h4{margin:0 0 8px 0;color:#fff;}',
+    '.dialog-content p{margin:0 0 16px 0;color:#ccc;}',
+    '.dialog-buttons{display:flex;gap:8px;justify-content:flex-end;}',
+].join('');
+
 // ===================== API helpers =====================
 
 let _csrfToken = null;
@@ -333,25 +355,6 @@ function buildSettingsHtml() {
         '.sync-log-error{color:#d9534f;} .sync-log-success{color:#5cb85c;}',
         '.sync-log-warning{color:#f0ad4e;} .sync-log-info{color:#aaa;}',
         '#sync-test-result{margin-left:8px;font-size:13px;}',
-        // Float button
-        '#sync-float-btn{position:fixed;bottom:80px;right:20px;width:48px;height:48px;background:#2a2a2a;border:2px solid #555;border-radius:50%;cursor:pointer;z-index:9999;display:flex;align-items:center;justify-content:center;transition:all 0.2s;box-shadow:0 2px 8px rgba(0,0,0,0.4);}',
-        '#sync-float-btn:hover{border-color:#888;background:#333;}',
-        '.sync-float-icon{color:#ccc;display:flex;align-items:center;justify-content:center;}',
-        '#sync-float-status{position:absolute;bottom:2px;right:2px;width:12px;height:12px;border-radius:50%;border:2px solid #1a1a1a;}',
-        '#sync-float-status.idle{background:#5cb85c;} #sync-float-status.syncing{background:#f0ad4e;animation:sync-pulse 0.8s infinite;}',
-        '#sync-float-status.error{background:#d9534f;} #sync-float-status.noconfig{background:#777;}',
-        '@keyframes sync-pulse{0%,100%{opacity:1}50%{opacity:0.3}}',
-        '#sync-float-menu{position:fixed;bottom:136px;right:20px;background:#2a2a2a;border:1px solid #555;border-radius:8px;padding:4px 0;z-index:9998;display:none;min-width:150px;box-shadow:0 4px 12px rgba(0,0,0,0.5);}',
-        '#sync-float-menu.show{display:block;}',
-        '.sync-float-menu-item{padding:8px 16px;cursor:pointer;color:#ccc;font-size:13px;display:flex;align-items:center;gap:8px;transition:background 0.15s;}',
-        '.sync-float-menu-item:hover{background:#3a3a3a;color:#fff;}',
-        '.sync-float-menu-item span{font-size:16px;}',
-        // Dialog
-        '.dialog-modal{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:99999;}',
-        '.dialog-content{background:#2a2a2a;border:1px solid #555;border-radius:8px;padding:20px;max-width:400px;width:90%;}',
-        '.dialog-content h4{margin:0 0 8px 0;color:#fff;}',
-        '.dialog-content p{margin:0 0 16px 0;color:#ccc;}',
-        '.dialog-buttons{display:flex;gap:8px;justify-content:flex-end;}',
         '</style>',
     ].join('');
 }
@@ -559,6 +562,10 @@ function createFloatButton() {
 // ===================== MAIN INIT (DOM ready) =====================
 
 $(function () {
+    // Float button — independent of slash commands / settings panel
+    $('head').append('<style>' + FLOAT_BUTTON_CSS + '</style>');
+    createFloatButton();
+
     try {
         // Register slash commands using the proper API
         SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -594,9 +601,6 @@ $(function () {
         if (!$target.length) $target = $('body');
         $target.append(buildSettingsHtml());
         bindSettingsEvents();
-
-        // Create floating button
-        createFloatButton();
 
         console.log('[GitHub-Data-Sync] 初始化完成。斜杠命令: /sync-push /sync-pull /sync-status /sync-backups /sync-restore');
     } catch (err) {
