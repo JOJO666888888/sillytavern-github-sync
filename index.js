@@ -373,8 +373,8 @@ async function init(router) {
                 return;
             }
             // Security: resolve within syncDir only
-            const filePath = path.resolve(ctx.syncDir, file);
-            if (!filePath.startsWith(ctx.syncDir)) {
+            const filePath = path.normalize(path.join(ctx.syncDir, file));
+            if (!filePath.startsWith(path.normalize(ctx.syncDir) + path.sep) && filePath !== path.normalize(ctx.syncDir)) {
                 res.status(403).json({ success: false, error: '禁止访问。' });
                 return;
             }
@@ -402,8 +402,8 @@ async function init(router) {
                 return;
             }
             // Security: resolve within syncDir only
-            const filePath = path.resolve(ctx.syncDir, fileName);
-            if (!filePath.startsWith(ctx.syncDir)) {
+            const filePath = path.normalize(path.join(ctx.syncDir, fileName));
+            if (!filePath.startsWith(path.normalize(ctx.syncDir) + path.sep) && filePath !== path.normalize(ctx.syncDir)) {
                 res.status(403).json({ success: false, error: '禁止访问。' });
                 return;
             }
