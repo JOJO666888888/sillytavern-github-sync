@@ -70,15 +70,18 @@ async function doPull() {
     if (cfg.pullConfirmation !== false) {
         const confirmed = await showConfirmDialog(
             '确认从 GitHub 拉取？',
-            '这将用仓库中最新的数据覆盖本地的 SillyTavern 数据。是否继续？'
+            cfg.pullMode === 'remote-first'
+                ? '覆盖模式：远程数据将覆盖本地（拉取前会自动备份）。是否继续？'
+                : '合并模式：将尝试合并远程和本地数据。是否继续？'
         );
         if (!confirmed) return;
     }
     try {
         toastr.info('正在从 GitHub 拉取数据...', 'GitHub Sync');
         const result = await apiCall('POST', '/pull');
-        if (result.conflicts?.length > 0) {
-            toastr.warning('拉取时有冲突: ' + result.conflicts.join(', '), 'GitHub Sync');
+        if (result.hasConflicts && result.conflictFiles?.length > 0) {
+            toastr.warning('检测到 ' + result.conflictFiles.length + ' 个冲突文件', 'GitHub Sync');
+            await showConflictPanel(result.conflictFiles);
         } else {
             const files = result.filesRestored?.join(', ') || '';
             toastr.success('拉取成功: ' + files, 'GitHub Sync');
@@ -220,6 +223,157 @@ async function doRestore(index) {
     } catch (err) { toastr.error('恢复失败: ' + err.message, 'GitHub Sync'); }
 }
 
+// ===================== Conflict Resolution =====================
+
+function showConflictPanel(conflictFiles) {
+    return new Promise(function (resolve) {
+        var id = 'sync-conflict-' + Date.now();
+        var fileRows = conflictFiles.map(function (f) {
+            return '<div class="sync-conflict-file" data-file="' + escapeHtml(f) + '">' +
+                '<span class="sync-conflict-name">' + escapeHtml(f) + '</span>' +
+                '<div class="sync-conflict-btns">' +
+                '<button class="btn btn-sm btn-primary" data-action="ours" title="保留本地版本">本地</button>' +
+                '<button class="btn btn-sm btn-secondary" data-action="theirs" title="保留远程版本">远程</button>' +
+                '<button class="btn btn-sm" data-action="edit" title="手动编辑">编辑</button>' +
+                '</div></div>';
+        }).join('');
+
+        var html = '<div id="' + id + '" class="dialog-modal">' +
+            '<div class="dialog-content" style="max-width:600px;">' +
+            '<h4>检测到同步冲突</h4>' +
+            '<p>以下文件存在冲突，请选择解决方式：</p>' +
+            '<div class="sync-conflict-panel">' + fileRows + '</div>' +
+            '<div class="sync-conflict-global">' +
+            '<button class="btn btn-danger" data-action="all-ours">全部保留本地（强制推送）</button>' +
+            '<button class="btn btn-secondary" data-action="all-theirs">全部保留远程</button>' +
+            '<button class="btn btn-secondary" data-action="close" style="margin-left:auto;">关闭</button>' +
+            '</div></div></div>';
+
+        $('body').append(html);
+
+        var remaining = conflictFiles.slice();
+        var $panel = $('#' + id);
+
+        function updateRemaining() {
+            $panel.find('.sync-conflict-file').each(function () {
+                var f = $(this).data('file');
+                if (remaining.indexOf(f) === -1) {
+                    $(this).css('opacity', '0.4').find('.sync-conflict-btns button').prop('disabled', true);
+                }
+            });
+            if (remaining.length === 0) {
+                toastr.success('所有冲突已解决！', 'GitHub Sync');
+                $panel.remove();
+                resolve(true);
+            }
+        }
+
+        // Per-file actions
+        $panel.on('click', '[data-action="ours"]', function () {
+            var file = $(this).closest('.sync-conflict-file').data('file');
+            apiCall('POST', '/resolve-conflict', { fileName: file, strategy: 'ours' }).then(function () {
+                remaining = remaining.filter(function (f) { return f !== file; });
+                updateRemaining();
+            }).catch(function (err) { toastr.error(err.message, 'GitHub Sync'); });
+        });
+
+        $panel.on('click', '[data-action="theirs"]', function () {
+            var file = $(this).closest('.sync-conflict-file').data('file');
+            apiCall('POST', '/resolve-conflict', { fileName: file, strategy: 'theirs' }).then(function () {
+                remaining = remaining.filter(function (f) { return f !== file; });
+                updateRemaining();
+            }).catch(function (err) { toastr.error(err.message, 'GitHub Sync'); });
+        });
+
+        $panel.on('click', '[data-action="edit"]', function () {
+            var file = $(this).closest('.sync-conflict-file').data('file');
+            showConflictEditor(file, id).then(function (resolved) {
+                if (resolved) {
+                    remaining = remaining.filter(function (f) { return f !== file; });
+                    updateRemaining();
+                }
+            });
+        });
+
+        // Global actions
+        $panel.on('click', '[data-action="all-ours"]', function () {
+            showConfirmDialog('确认全部保留本地？', '此操作将强制推送本地数据到远程仓库，其他设备的修改将被覆盖。').then(function (ok) {
+                if (!ok) return;
+                apiCall('POST', '/force-push').then(function () {
+                    toastr.success('已强制推送（保留本地）', 'GitHub Sync');
+                    remaining = [];
+                    updateRemaining();
+                    refreshAllUI();
+                }).catch(function (err) { toastr.error(err.message, 'GitHub Sync'); });
+            });
+        });
+
+        $panel.on('click', '[data-action="all-theirs"]', function () {
+            showConfirmDialog('确认全部保留远程？', '本地冲突文件将被远程版本覆盖。').then(function (ok) {
+                if (!ok) return;
+                apiCall('POST', '/resolve-conflict', { fileName: remaining[0], strategy: 'theirs' }).then(function () {
+                    // Resolve remaining one by one
+                    var chain = Promise.resolve();
+                    remaining.forEach(function (f) {
+                        chain = chain.then(function () {
+                            return apiCall('POST', '/resolve-conflict', { fileName: f, strategy: 'theirs' });
+                        });
+                    });
+                    chain.then(function () {
+                        toastr.success('已全部保留远程版本', 'GitHub Sync');
+                        remaining = [];
+                        updateRemaining();
+                        refreshAllUI();
+                    });
+                }).catch(function (err) { toastr.error(err.message, 'GitHub Sync'); });
+            });
+        });
+
+        $panel.on('click', '[data-action="close"]', function () {
+            $panel.remove();
+            resolve(remaining.length === 0);
+        });
+    });
+}
+
+function showConflictEditor(file, parentId) {
+    return new Promise(function (resolve) {
+        apiCall('GET', '/conflict-content?file=' + encodeURIComponent(file)).then(function (data) {
+            var editorId = 'sync-editor-' + Date.now();
+            var html = '<div id="' + editorId + '" class="dialog-modal">' +
+                '<div class="dialog-content" style="max-width:700px;">' +
+                '<h4>编辑: ' + escapeHtml(file) + '</h4>' +
+                '<textarea class="sync-conflict-editor" spellcheck="false">' + escapeHtml(data.content) + '</textarea>' +
+                '<div class="dialog-buttons" style="margin-top:8px;">' +
+                '<button class="btn btn-primary" data-action="save">保存并解决</button>' +
+                '<button class="btn btn-secondary" data-action="cancel">取消</button>' +
+                '</div></div></div>';
+
+            $('body').append(html);
+            var $editor = $('#' + editorId);
+
+            $editor.on('click', '[data-action="save"]', function () {
+                var content = $editor.find('.sync-conflict-editor').val();
+                apiCall('POST', '/resolve-conflict', { fileName: file, strategy: 'manual', content: content }).then(function () {
+                    toastr.success('已保存并解决: ' + file, 'GitHub Sync');
+                    $editor.remove();
+                    resolve(true);
+                }).catch(function (err) {
+                    toastr.error('保存失败: ' + err.message, 'GitHub Sync');
+                });
+            });
+
+            $editor.on('click', '[data-action="cancel"]', function () {
+                $editor.remove();
+                resolve(false);
+            });
+        }).catch(function (err) {
+            toastr.error('读取文件失败: ' + err.message, 'GitHub Sync');
+            resolve(false);
+        });
+    });
+}
+
 // ===================== Settings Panel =====================
 
 function buildSettingsHtml() {
@@ -270,6 +424,18 @@ function buildSettingsHtml() {
         '<input type="number" id="sync-autopush-interval" class="text_pole" min="5" value="30" step="5"></div>',
         '</div></div>',
 
+        // Pull Mode
+        '<div class="inline-drawer">',
+        '<div class="inline-drawer-toggle inline-drawer-header"><b>拉取模式</b>',
+        '<div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div>',
+        '<div class="inline-drawer-content" style="padding:8px 12px;">',
+        '<div class="sync-radio-group">',
+        '<label class="checkbox_label"><input type="radio" name="sync-pull-mode" value="local-first" checked>合并模式（以本地为准）</label>',
+        '<label class="checkbox_label"><input type="radio" name="sync-pull-mode" value="remote-first">覆盖模式（以远程为准）</label>',
+        '</div>',
+        '<small style="color:#777;display:block;margin-top:4px;">覆盖模式：拉取前自动备份，用远程文件覆盖本地，不会产生冲突。</small>',
+        '</div></div>',
+
         // Auto Backup
         '<div class="inline-drawer">',
         '<div class="inline-drawer-toggle inline-drawer-header"><b>备份</b>',
@@ -279,6 +445,7 @@ function buildSettingsHtml() {
         '<div class="form-group"><label>保留备份数量（1-50）</label>',
         '<input type="number" id="sync-autobackup-max" class="text_pole" min="1" max="50" value="5"></div>',
         '<button id="sync-backup-now" class="btn btn-secondary">手动备份</button>',
+        '<button id="sync-backup-refresh" class="btn btn-sm" style="margin-left:4px;" title="刷新备份列表"><span class="fa fa-refresh"></span></button>',
         '<div id="sync-backup-list" style="margin-top:8px;max-height:150px;overflow-y:auto;"></div>',
         '</div></div>',
 
@@ -317,6 +484,16 @@ function buildSettingsHtml() {
         '.sync-log-error{color:#d9534f;} .sync-log-success{color:#5cb85c;}',
         '.sync-log-warning{color:#f0ad4e;} .sync-log-info{color:#aaa;}',
         '#sync-test-result{margin-left:8px;font-size:13px;}',
+        '.sync-radio-group{display:flex;flex-direction:column;gap:4px;}',
+        '.sync-radio-group .checkbox_label{font-size:13px;color:#ccc;cursor:pointer;}',
+        // Conflict panel
+        '.sync-conflict-panel{max-height:60vh;overflow-y:auto;}',
+        '.sync-conflict-file{display:flex;align-items:center;gap:8px;padding:8px;border-bottom:1px solid #333;}',
+        '.sync-conflict-file:last-child{border-bottom:none;}',
+        '.sync-conflict-name{flex:1;color:#ccc;font-size:13px;word-break:break-all;}',
+        '.sync-conflict-btns{display:flex;gap:4px;flex-shrink:0;}',
+        '.sync-conflict-editor{width:100%;min-height:300px;background:#1a1a1a;color:#ccc;border:1px solid #555;font-family:monospace;font-size:12px;padding:8px;resize:vertical;}',
+        '.sync-conflict-global{display:flex;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid #555;}',
         // Dialog
         '.dialog-modal{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:99999;}',
         '.dialog-content{background:#2a2a2a;border:1px solid #555;border-radius:8px;padding:20px;max-width:400px;width:90%;}',
@@ -354,6 +531,7 @@ function bindSettingsEvents() {
         $('#sync-autobackup-enabled').prop('checked', ab.enabled !== false);
         $('#sync-autobackup-max').val(ab.maxBackups || 5);
         $('#sync-pull-confirmation').prop('checked', cfg.pullConfirmation !== false);
+        $('input[name="sync-pull-mode"][value="' + (cfg.pullMode || 'local-first') + '"]').prop('checked', true);
         refreshAllUI();
         loadBackupList();
     });
@@ -385,6 +563,7 @@ function bindSettingsEvents() {
                 maxBackups: parseInt($('#sync-autobackup-max').val()) || 5,
             },
             pullConfirmation: $('#sync-pull-confirmation').is(':checked'),
+            pullMode: $('input[name="sync-pull-mode"]:checked').val() || 'local-first',
         });
     }
     $panel.on('change input', 'input', function () {
@@ -453,6 +632,9 @@ function bindSettingsEvents() {
             toastr.info('备份已删除。', 'GitHub Sync');
             loadBackupList();
         } catch (err) { toastr.error('删除失败: ' + err.message, 'GitHub Sync'); }
+    });
+    $('#sync-backup-refresh').on('click', function () {
+        loadBackupList();
     });
 
     // Dynamic polling: 2s during sync, 30s when idle

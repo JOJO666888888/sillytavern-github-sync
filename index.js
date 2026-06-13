@@ -348,6 +348,125 @@ async function init(router) {
         }
     });
 
+    // ---- Conflict resolution routes ----
+
+    router.get('/conflicts', async (req, res) => {
+        try {
+            const ctx = getUserContext(req);
+            if (!(await gitOps.isRepo(ctx.syncDir))) {
+                res.json({ success: true, conflictFiles: [] });
+                return;
+            }
+            const conflictFiles = await gitOps.getConflictFiles(ctx.syncDir);
+            res.json({ success: true, conflictFiles });
+        } catch (err) {
+            res.status(500).json({ success: false, error: err.message });
+        }
+    });
+
+    router.get('/conflict-content', async (req, res) => {
+        try {
+            const ctx = getUserContext(req);
+            const file = req.query.file;
+            if (!file) {
+                res.status(400).json({ success: false, error: '需要提供 file 参数。' });
+                return;
+            }
+            // Security: resolve within syncDir only
+            const filePath = path.resolve(ctx.syncDir, file);
+            if (!filePath.startsWith(ctx.syncDir)) {
+                res.status(403).json({ success: false, error: '禁止访问。' });
+                return;
+            }
+            if (!(await fs.pathExists(filePath))) {
+                res.status(404).json({ success: false, error: '文件不存在。' });
+                return;
+            }
+            const content = await fs.readFile(filePath, 'utf-8');
+            res.json({ success: true, file, content });
+        } catch (err) {
+            res.status(500).json({ success: false, error: err.message });
+        }
+    });
+
+    router.post('/resolve-conflict', async (req, res) => {
+        try {
+            const ctx = getUserContext(req);
+            if (ctx.syncInProgress) {
+                res.status(409).json({ success: false, error: '同步操作正在进行中。' });
+                return;
+            }
+            const { fileName, strategy, content } = req.body || {};
+            if (!fileName || !strategy) {
+                res.status(400).json({ success: false, error: '需要提供 fileName 和 strategy。' });
+                return;
+            }
+            // Security: resolve within syncDir only
+            const filePath = path.resolve(ctx.syncDir, fileName);
+            if (!filePath.startsWith(ctx.syncDir)) {
+                res.status(403).json({ success: false, error: '禁止访问。' });
+                return;
+            }
+
+            if (strategy === 'ours') {
+                await gitOps.checkoutOurs(ctx.syncDir, fileName);
+            } else if (strategy === 'theirs') {
+                await gitOps.checkoutTheirs(ctx.syncDir, fileName);
+            } else if (strategy === 'manual') {
+                if (content === undefined || content === null) {
+                    res.status(400).json({ success: false, error: '手动解决需要提供 content。' });
+                    return;
+                }
+                // JSON validation for .json files
+                if (fileName.endsWith('.json')) {
+                    try { JSON.parse(content); } catch (e) {
+                        res.status(400).json({ success: false, error: 'JSON 格式错误: ' + e.message });
+                        return;
+                    }
+                }
+                await fs.writeFile(filePath, content, 'utf-8');
+                const git = require('simple-git')(ctx.syncDir);
+                await git.add(fileName);
+            } else {
+                res.status(400).json({ success: false, error: 'strategy 必须为 ours、theirs 或 manual。' });
+                return;
+            }
+
+            // Check if all conflicts are resolved
+            const remaining = await gitOps.getConflictFiles(ctx.syncDir);
+            if (remaining.length === 0) {
+                await gitOps.commitResolved(ctx.syncDir, 'Resolve merge conflicts');
+                addLogEntry(ctx, 'success', '所有冲突已解决');
+            }
+
+            res.json({ success: true, remainingConflicts: remaining.length });
+        } catch (err) {
+            res.status(500).json({ success: false, error: err.message });
+        }
+    });
+
+    router.post('/force-push', async (req, res) => {
+        try {
+            const ctx = getUserContext(req);
+            if (ctx.syncInProgress) {
+                res.status(409).json({ success: false, error: '同步操作正在进行中。' });
+                return;
+            }
+            ctx.syncInProgress = true;
+            try {
+                await gitOps.resolveAllOurs(ctx.syncDir);
+                await gitOps.commitResolved(ctx.syncDir, 'Resolve conflicts: keep local');
+                await gitOps.forcePush(ctx.config, ctx.syncDir);
+                addLogEntry(ctx, 'success', '已强制推送（保留本地）');
+                res.json({ success: true });
+            } finally {
+                ctx.syncInProgress = false;
+            }
+        } catch (err) {
+            res.status(500).json({ success: false, error: err.message });
+        }
+    });
+
     router.get('/backups', async (req, res) => {
         try {
             const ctx = getUserContext(req);
