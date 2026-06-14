@@ -234,6 +234,34 @@ Evening - on desktop (autoPush on):
 | Large first sync takes long | Normal on first push; subsequent pushes are incremental |
 | Plugin not updating | Check `enableServerPluginsAutoUpdate: true` in config.yaml |
 
+## Changelog
+
+### 2026-06-14
+
+**New Features**
+- **Dual pull modes** — New "Pull Mode" setting:
+  - **Merge mode** (default): Attempts to merge remote and local data; shows a visual conflict resolver if conflicts arise
+  - **Overwrite mode**: Auto-backs up before pull, overwrites local with remote files, never produces conflicts
+- **Conflict resolution center** — When merge mode detects conflicts, a visual panel appears:
+  - Per-file options: "Keep Local", "Keep Remote", "Manual Edit"
+  - Manual editor with JSON validation to prevent corrupted data
+  - Global actions: Keep All Local (force push) / Keep All Remote
+- **Backup refresh button** — Manual refresh for the backup list
+- **Multi-user isolation** — Supports SillyTavern multi-character login with per-user configs and data
+
+**Fixes**
+- Fix clone failure for empty repos (no branches)
+- Fix false positives in conflict marker detection (`=======` in normal content was flagged as conflict)
+- Fix "Forbidden" error when editing conflict files manually
+- Slash commands now load via dynamic import to prevent plugin failure from incompatible module paths
+
+### 2026-06-05
+
+- Fix config persistence (migrate from extension_settings to standalone file)
+- Fix masked token overwriting real token on save
+- Add push/pull progress tracking
+- Add auto-backup before pull
+
 ## Updating
 
 The plugin auto-updates on server restart. To update manually:
