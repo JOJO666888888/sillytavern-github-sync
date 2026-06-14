@@ -205,7 +205,7 @@ async function validateConnection(ctx) {
     if (!v.valid) return { valid: false, errors: v.errors };
     try {
         const remoteUrl = gitOps.buildRemoteUrl(ctx.config);
-        const git = require('simple-git')();
+        const git = require('simple-git')().env({ GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' });
         await git.listRemote(['--heads', remoteUrl]);
         return { valid: true, message: '已成功连接到仓库。' };
     } catch (err) {
