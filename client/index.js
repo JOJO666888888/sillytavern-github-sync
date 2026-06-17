@@ -455,7 +455,8 @@ function buildSettingsHtml() {
         '<div class="inline-drawer-toggle inline-drawer-header"><b>扩展路径备份</b>',
         '<div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div>',
         '<div class="inline-drawer-content" style="padding:8px 12px;">',
-        '<button id="sync-ext-scan" class="btn btn-secondary">获取列表</button>',
+        '<button id="sync-ext-scan" class="btn btn-secondary">获取本地列表</button>',
+        '<button id="gs_view_backup_btn" class="btn btn-secondary" style="margin-left:4px;">查看云端备份列表</button>',
         '<button id="gs_install_ext_btn" class="btn btn-primary" style="margin-left:4px;">一键安装缺失扩展</button>',
         '<small style="color:#777;display:block;margin-top:4px;">扫描已安装的第三方扩展，提取 Git 仓库地址。列表会随数据同步到云端。</small>',
         '<textarea id="sync-ext-list" class="text_pole" readonly style="margin-top:8px;width:100%;min-height:80px;max-height:200px;font-size:12px;font-family:monospace;resize:vertical;" placeholder="点击「获取列表」扫描已安装的扩展..."></textarea>',
@@ -668,6 +669,25 @@ function bindSettingsEvents() {
             toastr.success('发现 ' + data.list.length + ' 个扩展，列表已保存到云端。', 'GitHub Sync');
         } catch (err) {
             toastr.error('扫描失败: ' + err.message, 'GitHub Sync');
+        }
+    });
+
+    // View cloud backup list
+    $('#gs_view_backup_btn').on('click', async function () {
+        try {
+            var data = await apiCall('GET', '/extensions-backup');
+            if (!data.list || data.list.length === 0) {
+                $('#sync-ext-list').val('未找到云端备份列表，请先在其他设备进行备份同步。');
+                toastr.info('云端备份列表为空。', 'GitHub Sync');
+                return;
+            }
+            var text = data.list.map(function (e) {
+                return '[云端备份] ' + e.name + ': ' + e.url;
+            }).join('\n');
+            $('#sync-ext-list').val(text);
+            toastr.success('已加载云端备份列表', 'GitHub Sync');
+        } catch (err) {
+            toastr.error('读取云端备份列表失败: ' + err.message, 'GitHub Sync');
         }
     });
 
