@@ -481,6 +481,7 @@ function buildSettingsHtml() {
 
         // Styles
         '<style>',
+        '.github-data-sync-panel .inline-drawer .menu_button,.github-data-sync-panel .inline-drawer .btn{color:#000!important;font-weight:bold;}',
         '.github-data-sync-panel .inline-drawer{margin-bottom:4px;}',
         '.github-data-sync-panel .form-group{margin-bottom:8px;}',
         '.github-data-sync-panel .form-group label{display:block;margin-bottom:2px;font-size:13px;color:#aaa;}',
