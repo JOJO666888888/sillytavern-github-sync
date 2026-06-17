@@ -412,6 +412,7 @@ function buildSettingsHtml() {
         '<label class="checkbox_label"><input type="checkbox" id="sync-data-personas">人格头像 (Personas)</label>',
         '<label class="checkbox_label"><input type="checkbox" id="sync-data-backgrounds">背景 (Backgrounds)</label>',
         '<label class="checkbox_label"><input type="checkbox" id="sync-data-themes">主题 (Themes)</label>',
+        '<label class="checkbox_label"><input type="checkbox" id="sync-data-extensions">扩展路径 (Extensions)</label>',
         '</div></div></div>',
 
         // Auto Push
@@ -447,6 +448,16 @@ function buildSettingsHtml() {
         '<button id="sync-backup-now" class="btn btn-secondary">手动备份</button>',
         '<button id="sync-backup-refresh" class="btn btn-sm" style="margin-left:4px;" title="刷新备份列表"><span class="fa fa-refresh"></span></button>',
         '<div id="sync-backup-list" style="margin-top:8px;max-height:150px;overflow-y:auto;"></div>',
+        '</div></div>',
+
+        // Extensions Backup
+        '<div class="inline-drawer">',
+        '<div class="inline-drawer-toggle inline-drawer-header"><b>扩展路径备份</b>',
+        '<div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div>',
+        '<div class="inline-drawer-content" style="padding:8px 12px;">',
+        '<button id="sync-ext-scan" class="btn btn-secondary">获取列表</button>',
+        '<small style="color:#777;display:block;margin-top:4px;">扫描已安装的第三方扩展，提取 Git 仓库地址。列表会随数据同步到云端。</small>',
+        '<textarea id="sync-ext-list" class="text_pole" readonly style="margin-top:8px;width:100%;min-height:80px;max-height:200px;font-size:12px;font-family:monospace;resize:vertical;" placeholder="点击「获取列表」扫描已安装的扩展..."></textarea>',
         '</div></div>',
 
         // Controls & Log
@@ -524,6 +535,7 @@ function bindSettingsEvents() {
         $('#sync-data-personas').prop('checked', ds.personas !== false);
         $('#sync-data-backgrounds').prop('checked', ds.backgrounds === true);
         $('#sync-data-themes').prop('checked', ds.themes === true);
+        $('#sync-data-extensions').prop('checked', ds.extensions !== false);
         var ap = cfg.autoPush || {};
         $('#sync-autopush-enabled').prop('checked', ap.enabled === true);
         $('#sync-autopush-interval').val(ap.intervalMinutes || 30);
@@ -553,6 +565,7 @@ function bindSettingsEvents() {
                 personas: $('#sync-data-personas').is(':checked'),
                 backgrounds: $('#sync-data-backgrounds').is(':checked'),
                 themes: $('#sync-data-themes').is(':checked'),
+                extensions: $('#sync-data-extensions').is(':checked'),
             },
             autoPush: {
                 enabled: $('#sync-autopush-enabled').is(':checked'),
@@ -635,6 +648,26 @@ function bindSettingsEvents() {
     });
     $('#sync-backup-refresh').on('click', function () {
         loadBackupList();
+    });
+
+    // Extension scan
+    $('#sync-ext-scan').on('click', async function () {
+        try {
+            toastr.info('正在扫描扩展...', 'GitHub Sync');
+            var data = await apiCall('GET', '/extensions');
+            if (!data.list || data.list.length === 0) {
+                $('#sync-ext-list').val('未发现已安装的第三方扩展。');
+                toastr.info('未发现已安装的第三方扩展。', 'GitHub Sync');
+                return;
+            }
+            var text = data.list.map(function (e) {
+                return '- ' + e.name + ': ' + e.url;
+            }).join('\n');
+            $('#sync-ext-list').val(text);
+            toastr.success('发现 ' + data.list.length + ' 个扩展，列表已保存到云端。', 'GitHub Sync');
+        } catch (err) {
+            toastr.error('扫描失败: ' + err.message, 'GitHub Sync');
+        }
     });
 
     // Dynamic polling: 2s during sync, 30s when idle

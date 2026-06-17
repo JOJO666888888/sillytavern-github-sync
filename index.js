@@ -348,6 +348,40 @@ async function init(router) {
         }
     });
 
+    // ---- Extensions backup route ----
+
+    router.get('/extensions', async (req, res) => {
+        try {
+            const ctx = getUserContext(req);
+            const extDir = path.join(stRoot, 'public', 'scripts', 'extensions', 'third-party');
+            const list = [];
+            try {
+                const entries = await fs.readdir(extDir, { withFileTypes: true });
+                for (const entry of entries) {
+                    if (!entry.isDirectory()) continue;
+                    let url = '(本地扩展)';
+                    try {
+                        const gitConfig = path.join(extDir, entry.name, '.git', 'config');
+                        if (await fs.pathExists(gitConfig)) {
+                            const content = await fs.readFile(gitConfig, 'utf-8');
+                            const match = content.match(/url\s*=\s*(.*)/);
+                            if (match) url = match[1].trim();
+                        }
+                    } catch { /* ignore */ }
+                    list.push({ name: entry.name, url });
+                }
+            } catch { /* dir may not exist */ }
+
+            // Save to file for sync
+            const backupPath = path.join(ctx.stDataRoot, 'extensions-backup.json');
+            await fs.writeJson(backupPath, list, { spaces: 4 });
+
+            res.json({ success: true, list });
+        } catch (err) {
+            res.status(500).json({ success: false, error: err.message });
+        }
+    });
+
     // ---- Conflict resolution routes ----
 
     router.get('/conflicts', async (req, res) => {
