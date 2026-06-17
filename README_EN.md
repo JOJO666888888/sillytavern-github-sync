@@ -236,6 +236,21 @@ Evening - on desktop (autoPush on):
 
 ## Changelog
 
+### 2026-06-17
+
+**New Features**
+- **Extension path backup** — Scan installed third-party extensions, extract Git URLs, save as JSON synced to cloud
+- **One-click install missing extensions** — Compare cloud backup with local, auto-install missing extensions
+- **View cloud backup list** — View the synced extension list in the UI
+- **Generate backup and push** — One-click scan local extensions and push to GitHub
+- **Git anti-hang** — Set `GIT_TERMINAL_PROMPT=0` so invalid tokens fail immediately instead of waiting for password
+
+**Fixes**
+- Fix presets path mapping (pointed to nonexistent `presets/`, now `OpenAI Settings/`)
+- Fix personas path mapping (pointed to nonexistent `personas/`, now `User Avatars/`)
+- Fix local scan overwriting cloud backup file
+- Extension panel button text color set to black for readability
+
 ### 2026-06-14
 
 **New Features**
