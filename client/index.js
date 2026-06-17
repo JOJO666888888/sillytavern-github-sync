@@ -458,6 +458,7 @@ function buildSettingsHtml() {
         '<button id="sync-ext-scan" class="btn btn-secondary">获取本地列表</button>',
         '<button id="gs_view_backup_btn" class="btn btn-secondary" style="margin-left:4px;">查看云端备份列表</button>',
         '<button id="gs_install_ext_btn" class="btn btn-primary" style="margin-left:4px;">一键安装缺失扩展</button>',
+        '<button id="gs_push_backup_btn" class="btn btn-secondary" style="margin-left:4px;">生成备份并推送</button>',
         '<small style="color:#777;display:block;margin-top:4px;">扫描已安装的第三方扩展，提取 Git 仓库地址。列表会随数据同步到云端。</small>',
         '<textarea id="sync-ext-list" class="text_pole" readonly style="margin-top:8px;width:100%;min-height:80px;max-height:200px;font-size:12px;font-family:monospace;resize:vertical;" placeholder="点击「获取列表」扫描已安装的扩展..."></textarea>',
         '</div></div>',
@@ -688,6 +689,34 @@ function bindSettingsEvents() {
             toastr.success('已加载云端备份列表', 'GitHub Sync');
         } catch (err) {
             toastr.error('读取云端备份列表失败: ' + err.message, 'GitHub Sync');
+        }
+    });
+
+    // Generate backup and push
+    $('#gs_push_backup_btn').on('click', async function () {
+        var $btn = $('#gs_push_backup_btn');
+        $btn.prop('disabled', true).text('正在备份并推送...');
+        try {
+            var data = await apiCall('GET', '/extensions');
+            if (!data.list || data.list.length === 0) {
+                toastr.info('没有扩展需要备份。', 'GitHub Sync');
+                $btn.prop('disabled', false).text('生成备份并推送');
+                return;
+            }
+            await apiCall('POST', '/extensions-backup', { list: data.list });
+            $('#sync-ext-list').val('备份已生成，正在推送到云端...\n\n' +
+                data.list.map(function (e) { return '- ' + e.name + ': ' + e.url; }).join('\n'));
+            toastr.info('正在推送到 GitHub...', 'GitHub Sync');
+            var result = await apiCall('POST', '/push');
+            if (result.skipped) {
+                toastr.success('备份已生成，无新更改需要推送。', 'GitHub Sync');
+            } else {
+                toastr.success('扩展备份已推送到云端！', 'GitHub Sync');
+            }
+        } catch (err) {
+            toastr.error('操作失败: ' + err.message, 'GitHub Sync');
+        } finally {
+            $btn.prop('disabled', false).text('生成备份并推送');
         }
     });
 

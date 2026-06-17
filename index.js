@@ -372,10 +372,6 @@ async function init(router) {
                 }
             } catch { /* dir may not exist */ }
 
-            // Save to file for sync
-            const backupPath = path.join(ctx.stDataRoot, 'extensions-backup.json');
-            await fs.writeJson(backupPath, list, { spaces: 4 });
-
             res.json({ success: true, list });
         } catch (err) {
             res.status(500).json({ success: false, error: err.message });
@@ -391,6 +387,23 @@ async function init(router) {
                 try { list = await fs.readJson(backupPath); } catch { /* corrupted file */ }
             }
             res.json({ success: true, list: Array.isArray(list) ? list : [] });
+        } catch (err) {
+            res.status(500).json({ success: false, error: err.message });
+        }
+    });
+
+    router.post('/extensions-backup', async (req, res) => {
+        try {
+            const ctx = getUserContext(req);
+            const list = req.body?.list;
+            if (!Array.isArray(list)) {
+                res.status(400).json({ success: false, error: '需要提供 list 数组。' });
+                return;
+            }
+            const backupPath = path.join(ctx.stDataRoot, 'extensions-backup.json');
+            await fs.writeJson(backupPath, list, { spaces: 4 });
+            addLogEntry(ctx, 'info', '扩展备份已更新', `${list.length} 个扩展`);
+            res.json({ success: true, count: list.length });
         } catch (err) {
             res.status(500).json({ success: false, error: err.message });
         }
