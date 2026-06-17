@@ -456,6 +456,7 @@ function buildSettingsHtml() {
         '<div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div>',
         '<div class="inline-drawer-content" style="padding:8px 12px;">',
         '<button id="sync-ext-scan" class="btn btn-secondary">获取列表</button>',
+        '<button id="gs_install_ext_btn" class="btn btn-primary" style="margin-left:4px;">一键安装缺失扩展</button>',
         '<small style="color:#777;display:block;margin-top:4px;">扫描已安装的第三方扩展，提取 Git 仓库地址。列表会随数据同步到云端。</small>',
         '<textarea id="sync-ext-list" class="text_pole" readonly style="margin-top:8px;width:100%;min-height:80px;max-height:200px;font-size:12px;font-family:monospace;resize:vertical;" placeholder="点击「获取列表」扫描已安装的扩展..."></textarea>',
         '</div></div>',
@@ -669,6 +670,63 @@ function bindSettingsEvents() {
             toastr.error('扫描失败: ' + err.message, 'GitHub Sync');
         }
     });
+
+    // Install missing extensions
+    $('#gs_install_ext_btn').on('click', installMissingExtensions);
+
+    async function installMissingExtensions() {
+        var $btn = $('#gs_install_ext_btn');
+        var $ta = $('#sync-ext-list');
+        $btn.prop('disabled', true).text('正在比对并安装...');
+        try {
+            var localData = await apiCall('GET', '/extensions');
+            var backupData = await apiCall('GET', '/extensions-backup');
+
+            var localNames = new Set((localData.list || []).map(function (e) { return e.name; }));
+            var backupList = (backupData.list || []).filter(function (e) {
+                return e.url && e.url !== '(本地扩展)' && !localNames.has(e.name);
+            });
+
+            if (backupList.length === 0) {
+                toastr.info('所有扩展均已安装！', 'GitHub Sync');
+                $btn.prop('disabled', false).text('一键安装缺失扩展');
+                return;
+            }
+
+            var lines = ['开始安装缺失扩展 (共 ' + backupList.length + ' 个)...'];
+            $ta.val(lines.join('\n'));
+
+            for (var i = 0; i < backupList.length; i++) {
+                var ext = backupList[i];
+                var prefix = '[' + (i + 1) + '/' + backupList.length + '] ';
+                try {
+                    var resp = await fetch('/api/extensions/install', {
+                        method: 'POST',
+                        headers: Object.assign({ 'Content-Type': 'application/json' }, await getCsrfToken() ? { 'X-CSRF-Token': await getCsrfToken() } : {}),
+                        body: JSON.stringify({ url: ext.url }),
+                    });
+                    if (resp.ok) {
+                        lines.push(prefix + ext.name + '... 成功');
+                    } else {
+                        lines.push(prefix + ext.name + '... 失败 (' + resp.status + ')');
+                    }
+                } catch (e) {
+                    lines.push(prefix + ext.name + '... 错误: ' + e.message);
+                }
+                $ta.val(lines.join('\n'));
+                await new Promise(function (r) { setTimeout(r, 500); });
+            }
+
+            lines.push('');
+            lines.push('安装流程结束。请重启 SillyTavern 以加载新安装的扩展。');
+            $ta.val(lines.join('\n'));
+            toastr.success('缺失扩展安装完成，请重启生效！', 'GitHub Sync');
+        } catch (err) {
+            toastr.error('安装失败: ' + err.message, 'GitHub Sync');
+        } finally {
+            $btn.prop('disabled', false).text('一键安装缺失扩展');
+        }
+    }
 
     // Dynamic polling: 2s during sync, 30s when idle
     (function dynamicPoll() {

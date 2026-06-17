@@ -382,6 +382,20 @@ async function init(router) {
         }
     });
 
+    router.get('/extensions-backup', async (req, res) => {
+        try {
+            const ctx = getUserContext(req);
+            const backupPath = path.join(ctx.stDataRoot, 'extensions-backup.json');
+            let list = [];
+            if (await fs.pathExists(backupPath)) {
+                try { list = await fs.readJson(backupPath); } catch { /* corrupted file */ }
+            }
+            res.json({ success: true, list: Array.isArray(list) ? list : [] });
+        } catch (err) {
+            res.status(500).json({ success: false, error: err.message });
+        }
+    });
+
     // ---- Conflict resolution routes ----
 
     router.get('/conflicts', async (req, res) => {
