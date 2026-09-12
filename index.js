@@ -4,6 +4,7 @@ const gitOps = require('./lib/git-ops');
 const syncEngine = require('./lib/sync-engine');
 const syncConfig = require('./lib/sync-config');
 const backup = require('./lib/backup');
+const secrets = require('./lib/secrets');
 
 const PLUGIN_ID = 'github-data-sync';
 const SYNC_DIR_NAME = '.github-data-sync';
@@ -31,6 +32,46 @@ const userContexts = new Map();
 let stRoot = '';
 
 /**
+ * 一次性迁移：把配置文件里的明文 token 搬到 0600 密钥文件并清空原字段。
+ * 用户无需任何操作：重启后（或首次请求时）自动完成。
+ * 迁移失败只提示、不抛错，避免阻断插件启动。
+ */
+function migrateLegacyToken(saved, handle, configFilePath) {
+    try {
+        const tokenFile = (typeof saved.tokenFile === 'string' && saved.tokenFile.trim())
+            ? saved.tokenFile.trim()
+            : secrets.getTokenFilePath(handle);
+
+        const existing = secrets.readTokenFromFile(tokenFile);
+        const legacy = typeof saved.githubToken === 'string' ? saved.githubToken.trim() : '';
+
+        if (!legacy) {
+            // 没有明文 token：若也没有密钥文件，只在内存里记录默认路径
+            if (!existing) saved.tokenFile = tokenFile;
+            return;
+        }
+
+        if (existing) {
+            // 密钥文件已有值：清除配置里的明文副本
+            saved.githubToken = '';
+            saved.tokenFile = tokenFile;
+            try { fs.writeJsonSync(configFilePath, saved, { spaces: 4 }); } catch { /* 回写失败仅提示 */ }
+            console.log(`[github-data-sync] 用户 ${handle}: 已清除配置中的明文 token（密钥文件已存在）`);
+            return;
+        }
+
+        // 主迁移路径：明文 -> 密钥文件 -> 清空原字段
+        secrets.writeTokenToFile(tokenFile, legacy);
+        saved.githubToken = '';
+        saved.tokenFile = tokenFile;
+        try { fs.writeJsonSync(configFilePath, saved, { spaces: 4 }); } catch { /* 回写失败仅提示 */ }
+        console.log(`[github-data-sync] 用户 ${handle}: token 已自动迁移到密钥文件 ${tokenFile}（配置中的明文已清空）`);
+    } catch (err) {
+        console.error(`[github-data-sync] token 迁移失败 (用户: ${handle}):`, err.message);
+    }
+}
+
+/**
  * 创建用户的上下文（加载配置）。
  */
 function createUserContext(handle, stDataRoot) {
@@ -52,6 +93,9 @@ function createUserContext(handle, stDataRoot) {
             }
         } catch { /* not in ST context */ }
     }
+
+    // 一次性迁移：明文 token -> 0600 密钥文件（零用户操作）
+    migrateLegacyToken(saved, handle, configFilePath);
 
     const ctx = {
         handle,
@@ -86,7 +130,25 @@ function addLogEntry(ctx, type, message, details) {
 }
 
 function saveConfig(ctx, newConfig) {
-    ctx.config = syncConfig.mergeWithDefaults(newConfig);
+    const merged = syncConfig.mergeWithDefaults(newConfig);
+
+    // 用户刚输入的新 token 也立即落到密钥文件，配置里不保留明文
+    if (typeof merged.githubToken === 'string' && merged.githubToken.trim()) {
+        try {
+            const tokenFile = (typeof merged.tokenFile === 'string' && merged.tokenFile.trim())
+                ? merged.tokenFile.trim()
+                : secrets.getTokenFilePath(ctx.handle);
+            secrets.writeTokenToFile(tokenFile, merged.githubToken.trim());
+            merged.githubToken = '';
+            merged.tokenFile = tokenFile;
+            addLogEntry(ctx, 'info', 'Token 已保存到密钥文件', tokenFile);
+        } catch (err) {
+            // 密钥文件写入失败时保留原字段，让本次配置仍然可用
+            console.error(`[github-data-sync] 写入密钥文件失败 (用户: ${ctx.handle}):`, err.message);
+        }
+    }
+
+    ctx.config = merged;
     // 写入 extension_settings（兼容 ST 内存存储）
     try {
         if (global.extension_settings) {
@@ -137,7 +199,22 @@ async function executePush(ctx) {
         if (!v.valid) throw Object.assign(new Error(v.errors.join(' ')), { statusCode: 400, code: 'INVALID_CONFIG' });
 
         await ensureRepo(ctx);
-        try { await gitOps.pullRepo(ctx.config, ctx.syncDir); } catch { /* first push may have no remote commits */ }
+        // 预拉取：让本地仓库与远端对齐后再推送。
+        // 注意：不能无条件吞掉异常 —— 移除 -X ours 之后，冲突会让仓库停留在 merge 状态，
+        // 随后的 pushData 会把冲突标记（<<<<<<< / >>>>>>>）当成正常内容提交上去。
+        try {
+            await gitOps.pullRepo(ctx.config, ctx.syncDir);
+        } catch (err) {
+            const conflicts = await gitOps.getConflictFiles(ctx.syncDir).catch(() => []);
+            if (conflicts.length > 0) {
+                await gitOps.abortMerge(ctx.syncDir).catch(() => {});
+                throw Object.assign(
+                    new Error(`远程有 ${conflicts.length} 个文件与本地冲突，已中止推送。请先执行「拉取」并在冲突面板中处理。`),
+                    { statusCode: 409, code: 'PUSH_CONFLICT' }
+                );
+            }
+            // 远端尚无任何提交（首次推送）等情况可以继续
+        }
 
         const onProgress = (done, total, label) => {
             addLogEntry(ctx, 'info', `推送中: ${label} (${done}/${total})`);
@@ -167,17 +244,26 @@ async function executePull(ctx) {
         const v = syncConfig.validateConfig(ctx.config);
         if (!v.valid) throw Object.assign(new Error(v.errors.join(' ')), { statusCode: 400, code: 'INVALID_CONFIG' });
 
-        // Auto-backup before pull
-        let backupResult = null;
-        if (ctx.config.autoBackup?.enabled) {
+        // 拉取前自动备份：备份失败必须中止拉取，否则远端覆盖后本地无法恢复。
+        const autoBackupEnabled = ctx.config.autoBackup?.enabled !== false;
+        if (autoBackupEnabled) {
+            let backupResult;
             try {
                 backupResult = await backup.createBackup(ctx.config, ctx.stDataRoot);
-                if (backupResult) {
-                    addLogEntry(ctx, 'info', '备份已创建', `${backupResult.categories.length} 个类别, ${backup.formatSize(backupResult.size)}`);
-                }
             } catch (err) {
-                addLogEntry(ctx, 'warning', '备份失败', err.message);
+                addLogEntry(ctx, 'error', '拉取前备份失败，已中止拉取', err.message);
+                throw Object.assign(
+                    new Error(`拉取前备份失败，为避免数据丢失已中止：${err.message}`),
+                    { statusCode: 500, code: 'BACKUP_FAILED' }
+                );
             }
+            if (backupResult && backupResult.created) {
+                addLogEntry(ctx, 'info', '备份已创建', `${backupResult.categories.length} 个类别, ${backup.formatSize(backupResult.size)}`);
+            } else {
+                addLogEntry(ctx, 'warning', '未创建备份', `原因: ${backupResult?.reason || 'unknown'}。本次拉取仍会继续。`);
+            }
+        } else {
+            addLogEntry(ctx, 'warning', '拉取前自动备份已关闭', '本次拉取不会创建备份，数据可能无法恢复。');
         }
 
         await ensureRepo(ctx);
@@ -205,7 +291,7 @@ async function validateConnection(ctx) {
     if (!v.valid) return { valid: false, errors: v.errors };
     try {
         const remoteUrl = gitOps.buildRemoteUrl(ctx.config);
-        const git = require('simple-git')().env({ GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' });
+        const git = gitOps.gitWithEnv(undefined, ctx.config);
         await git.listRemote(['--heads', remoteUrl]);
         return { valid: true, message: '已成功连接到仓库。' };
     } catch (err) {
@@ -365,7 +451,10 @@ async function init(router) {
                         if (await fs.pathExists(gitConfig)) {
                             const content = await fs.readFile(gitConfig, 'utf-8');
                             const match = content.match(/url\s*=\s*(.*)/);
-                            if (match) url = match[1].trim();
+                            if (match) {
+                                // 脱敏：去掉可能内嵌的凭据（https://user:token@host/...）
+                                url = match[1].trim().replace(/\/\/[^@/]+@/, '//***@');
+                            }
                         }
                     } catch { /* ignore */ }
                     list.push({ name: entry.name, url });
@@ -486,18 +575,32 @@ async function init(router) {
                     }
                 }
                 await fs.writeFile(filePath, content, 'utf-8');
-                const git = require('simple-git')(ctx.syncDir);
-                await git.add(fileName);
+                await gitOps.addFile(ctx.syncDir, fileName);
             } else {
                 res.status(400).json({ success: false, error: 'strategy 必须为 ours、theirs 或 manual。' });
                 return;
             }
 
-            // Check if all conflicts are resolved
+            // 全部冲突解决后：提交，并把结果回写到数据目录
             const remaining = await gitOps.getConflictFiles(ctx.syncDir);
             if (remaining.length === 0) {
                 await gitOps.commitResolved(ctx.syncDir, 'Resolve merge conflicts');
                 addLogEntry(ctx, 'success', '所有冲突已解决');
+
+                // 冲突解决结果此时只存在于同步仓库的工作区，必须回写到数据目录。
+                // 旧实现到此结束，用户"解决完冲突"却在本地看不到任何变化。
+                try {
+                    const applied = await syncEngine.copyFromRepo(
+                        ctx.config,
+                        ctx.syncDir,
+                        ctx.stDataRoot,
+                        (done, total, label) => addLogEntry(ctx, 'info', `应用冲突解决结果: ${label} (${done}/${total})`),
+                        { changes: 0, insertions: 0, deletions: 0 }
+                    );
+                    addLogEntry(ctx, 'success', '冲突解决结果已应用', `${applied.filesRestored.length} 个类别`);
+                } catch (err) {
+                    addLogEntry(ctx, 'warning', '冲突已解决，但应用到本地失败', err.message);
+                }
             }
 
             res.json({ success: true, remainingConflicts: remaining.length });
@@ -549,8 +652,11 @@ async function init(router) {
         try {
             const ctx = getUserContext(req);
             const result = await backup.createBackup(ctx.config, ctx.stDataRoot);
-            if (!result) {
-                res.json({ success: true, message: '没有数据需要备份。' });
+            if (!result.created) {
+                const message = result.reason === 'disabled'
+                    ? '自动备份功能已关闭，未创建备份。'
+                    : '没有数据需要备份。';
+                res.json({ success: true, message });
                 return;
             }
             addLogEntry(ctx, 'info', '手动备份已创建', `${result.categories.length} 个类别, ${backup.formatSize(result.size)}`);
@@ -572,7 +678,7 @@ async function init(router) {
             addLogEntry(ctx, 'success', '备份已恢复', result.restored.join(', '));
             res.json({ success: true, ...result });
         } catch (err) {
-            res.status(500).json({ success: false, error: err.message });
+            res.status(err.statusCode || 500).json({ success: false, error: err.message });
         }
     });
 
@@ -583,7 +689,7 @@ async function init(router) {
             addLogEntry(ctx, 'info', '备份已删除', req.params.id);
             res.json({ success: true });
         } catch (err) {
-            res.status(500).json({ success: false, error: err.message });
+            res.status(err.statusCode || 500).json({ success: false, error: err.message });
         }
     });
 
@@ -612,4 +718,7 @@ module.exports = {
     },
     init,
     exit,
+    // 仅供测试与迁移工具使用
+    migrateLegacyToken,
+    createUserContext,
 };

@@ -11,7 +11,7 @@ Sync SillyTavern data to a private GitHub repository — characters, chats, worl
 - **Selectable data categories** — sync only what you need
 - **Test connection** button to verify your repo and token
 - **Sync log** with the last 10 operations
-- **Token security** — PAT stored server-side, never exposed to the frontend
+- **Token security** — the PAT is kept in a `0600` secret file outside the data directory (or in an environment variable); never exposed to the frontend and never written into git config
 - **Auto-update** — plugin updates itself on server restart
 
 ## Prerequisites
@@ -217,10 +217,21 @@ Evening - on desktop (autoPush on):
 
 ## Security
 
-- Your GitHub token is stored in SillyTavern's extension settings on the server
-- It is **never** sent to the browser unmasked
-- All git error messages have the token redacted before reaching the client
+The token is resolved in this order: environment variable `ST_GITHUB_SYNC_TOKEN` → secret file → legacy config field.
+
+- The secret file lives at `~/.sillytavern-github-sync/<user>.token` with mode `0600`, kept
+  **outside the data directory** — so it is never picked up by sync, backups, or data snapshots
+- On first start, any plaintext token in the config is **migrated automatically** into the secret
+  file and the original field is cleared — **no manual action required**
+- The token is **never** sent to the browser unmasked; all git error messages are redacted first
+- The token is never written into `.git/config`: the remote URL stays clean
+  (`https://github.com/owner/repo.git`) and credentials are supplied through a `GIT_ASKPASS` helper,
+  so they never appear in command-line arguments either
 - The sync repository is stored under `data/default-user/.github-data-sync/`
+
+> **Note:** the secret file is still plaintext — it is simply in a much safer location (outside the
+> data directory) with tighter permissions (`0600`). If your deployment can inject environment
+> variables, prefer `ST_GITHUB_SYNC_TOKEN`, which takes the highest priority.
 
 ## Troubleshooting
 
@@ -232,9 +243,54 @@ Evening - on desktop (autoPush on):
 | "Repository not found" | Check repo name format: `username/repo-name` (case-sensitive) |
 | "A sync operation is already in progress" | Wait for the current operation to complete |
 | Large first sync takes long | Normal on first push; subsequent pushes are incremental |
-| Plugin not updating | Check `enableServerPluginsAutoUpdate: true` in config.yaml |
+| Plugin not updating | Check `enableServerPluginsAutoUpdate: true` in config.yaml (server plugins only) |
+| "pre-pull backup failed, aborted" | This is a safety guard: no backup means no overwriting pull. Check free disk space and permissions on `backups/github-sync/` |
+| Conflict panel appears after pull | Expected (conflicts are no longer silently biased to the local side). Resolve each file, and the result is applied to the data directory automatically once all are resolved |
 
 ## Changelog
+
+### 2026-09-12
+
+**Security fixes**
+
+- **Path traversal in backup restore/delete** — `backupId` was unvalidated, so a value containing
+  `../` could delete or overwrite arbitrary directories. It must now match a strict
+  second-resolution timestamp pattern and pass a resolved-prefix assertion; invalid input returns 400
+- **The token is no longer written to disk in plaintext** — it moved to a `0600` secret file outside
+  the data directory, is no longer embedded in the `.git/config` remote URL, and no longer appears in
+  command-line arguments (credentials now go through a `GIT_ASKPASS` helper)
+- The `/extensions` endpoint now redacts credentials from returned repository URLs
+
+**Important fixes**
+
+- **Pre-pull auto-backup could fail silently** — the old code returned `null` without logging anything
+  when backups were disabled, and merely logged a warning before proceeding with the overwriting pull
+  when the backup threw. Now a backup **error aborts the pull**, and disabled/no-data cases are logged
+  explicitly instead of staying silent
+- **The client could silently disable auto-backup** — any input change before the settings panel had
+  finished loading wrote back the not-yet-populated checkbox state, permanently turning
+  "backup before pull" off. A load-complete guard was added and the checkbox now defaults to checked
+- **Removed `-X ours` from pull** — it silently biased every conflict toward the local side, discarded
+  remote updates, and made the conflict UI unreachable. Conflicts now surface properly
+- **Pre-pull conflicts during push are no longer swallowed** — the old code ignored all errors, leaving
+  the repo mid-merge and committing conflict markers (`<<<<<<<`) as real content. It now aborts the
+  merge and tells you to resolve conflicts first
+- **Conflict resolution results were never applied locally** — resolving conflicts only committed to the
+  sync repository while the data directory stayed untouched. Results are now applied automatically once
+  every conflict is resolved
+- **Incremental copy was ineffective** — `copyFileIfChanged` compared mtimes but the copy did not
+  preserve timestamps, so the destination mtime was always "now" and every sync re-copied everything
+
+**Other**
+
+- Removed the mistakenly committed `config.yaml` at the repository root (plugin code never read it, and
+  its contents contradicted the README)
+
+**Upgrade notes**
+
+- **No manual action required**: the token migration happens automatically when the plugin starts
+- If your token was previously stored in plaintext in `github-data-sync-config.json`, or appeared in the
+  sync repository's `.git/config`, consider revoking it on GitHub and generating a new one
 
 ### 2026-06-17
 

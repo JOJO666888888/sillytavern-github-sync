@@ -442,7 +442,7 @@ function buildSettingsHtml() {
         '<div class="inline-drawer-toggle inline-drawer-header"><b>备份</b>',
         '<div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div>',
         '<div class="inline-drawer-content" style="padding:8px 12px;">',
-        '<label class="checkbox_label"><input type="checkbox" id="sync-autobackup-enabled">拉取前自动备份</label>',
+        '<label class="checkbox_label"><input type="checkbox" id="sync-autobackup-enabled" checked>拉取前自动备份</label>',
         '<div class="form-group"><label>保留备份数量（1-50）</label>',
         '<input type="number" id="sync-autobackup-max" class="text_pole" min="1" max="50" value="5"></div>',
         '<button id="sync-backup-now" class="btn btn-secondary">手动备份</button>',
@@ -523,6 +523,10 @@ function bindSettingsEvents() {
     const $panel = $('#github-data-sync-settings');
     if (!$panel.length) return;
 
+    // 配置加载完成前禁止保存：否则任意 input 变化都会把未回填的默认值
+    // （例如默认未勾选的复选框）当成用户意图整体写回，可能静默关闭自动备份等开关。
+    var configReady = false;
+
     // Load config into form
     loadConfig().then(function (cfg) {
         $('#sync-github-repo').val(cfg.githubRepo || '');
@@ -548,8 +552,11 @@ function bindSettingsEvents() {
         $('#sync-autobackup-max').val(ab.maxBackups || 5);
         $('#sync-pull-confirmation').prop('checked', cfg.pullConfirmation !== false);
         $('input[name="sync-pull-mode"][value="' + (cfg.pullMode || 'local-first') + '"]').prop('checked', true);
+        configReady = true;
         refreshAllUI();
         loadBackupList();
+    }).catch(function (err) {
+        console.error('[github-data-sync] 配置加载失败，已禁用自动保存以防覆盖配置:', err);
     });
 
     // Debounced save
@@ -584,6 +591,7 @@ function bindSettingsEvents() {
         });
     }
     $panel.on('change input', 'input', function () {
+        if (!configReady) return;
         clearTimeout(saveTimeout);
         saveTimeout = setTimeout(collectAndSave, 500);
     });
