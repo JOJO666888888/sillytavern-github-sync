@@ -44,7 +44,13 @@ async function saveConfig(partial) {
 }
 
 function escapeHtml(str) {
-    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        // 单引号也必须转义：若属性用单引号包裹，未转义的 ' 可以直接闭合属性
+        .replace(/'/g, '&#39;');
 }
 
 // ===================== Sync operations =====================
@@ -299,7 +305,8 @@ function showConflictPanel(conflictFiles) {
         $panel.on('click', '[data-action="all-ours"]', function () {
             showConfirmDialog('确认全部保留本地？', '此操作将强制推送本地数据到远程仓库，其他设备的修改将被覆盖。').then(function (ok) {
                 if (!ok) return;
-                apiCall('POST', '/force-push').then(function () {
+                // 后端要求显式 confirm：强制推送会永久丢弃远端提交
+                apiCall('POST', '/force-push', { confirm: true }).then(function () {
                     toastr.success('已强制推送（保留本地）', 'GitHub Sync');
                     remaining = [];
                     updateRemaining();

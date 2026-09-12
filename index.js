@@ -8,7 +8,10 @@ const secrets = require('./lib/secrets');
 
 const PLUGIN_ID = 'github-data-sync';
 const SYNC_DIR_NAME = '.github-data-sync';
-const MAX_LOG_ENTRIES = 10;
+// 日志条数上限。旧值 10 太小；而且日志原先只存在内存里，重启即丢 ——
+// 恰恰在最需要事后排查的时候（进程重启后）什么都看不到。
+const MAX_LOG_ENTRIES = 100;
+const LOG_FILE_NAME = 'github-data-sync-log.json';
 const CONFIG_FILE_NAME = 'github-data-sync-config.json';
 
 // ===================== 多用户上下文管理 =====================
@@ -97,13 +100,15 @@ function createUserContext(handle, stDataRoot) {
     // 一次性迁移：明文 token -> 0600 密钥文件（零用户操作）
     migrateLegacyToken(saved, handle, configFilePath);
 
+    const logFilePath = path.join(stDataRoot, LOG_FILE_NAME);
     const ctx = {
         handle,
         stDataRoot,
         syncDir,
         configFilePath,
+        logFilePath,
         config: syncConfig.mergeWithDefaults(saved),
-        syncLog: [],
+        syncLog: loadPersistedLog(logFilePath),
         syncInProgress: false,
         autoPushTimer: null,
     };
@@ -127,6 +132,45 @@ function getUserContext(req) {
 function addLogEntry(ctx, type, message, details) {
     ctx.syncLog.unshift({ type, message, details, timestamp: new Date().toISOString() });
     if (ctx.syncLog.length > MAX_LOG_ENTRIES) ctx.syncLog = ctx.syncLog.slice(0, MAX_LOG_ENTRIES);
+    persistLog(ctx);
+}
+
+/**
+ * 把日志落到用户数据目录。
+ *
+ * 用同步写：日志量很小（上限 100 条），而丢失日志的场景几乎总是进程异常退出，
+ * 异步写反而可能来不及落盘。失败一律忽略 —— 绝不能因为写日志失败而中断同步。
+ */
+function persistLog(ctx) {
+    if (!ctx.logFilePath) return;
+    try {
+        fs.writeJsonSync(ctx.logFilePath, ctx.syncLog, { spaces: 4 });
+    } catch { /* 日志持久化失败不应影响主流程 */ }
+}
+
+function loadPersistedLog(logFilePath) {
+    try {
+        if (logFilePath && fs.existsSync(logFilePath)) {
+            const data = fs.readJsonSync(logFilePath);
+            if (Array.isArray(data)) return data.slice(0, MAX_LOG_ENTRIES);
+        }
+    } catch { /* 文件损坏时从空日志开始，不阻断启动 */ }
+    return [];
+}
+
+/**
+ * 操作锁检查。
+ *
+ * 备份/恢复/删除备份同样要读写用户数据目录，必须与推送/拉取互斥 ——
+ * 否则「恢复备份」与「拉取覆盖」并发执行会写出一个两边混合的数据目录。
+ */
+function assertNotBusy(ctx, action) {
+    if (ctx.syncInProgress) {
+        throw Object.assign(
+            new Error(`同步操作正在进行中，无法${action}。请等待当前操作完成。`),
+            { statusCode: 409, code: 'LOCKED' }
+        );
+    }
 }
 
 function saveConfig(ctx, newConfig) {
@@ -484,6 +528,7 @@ async function init(router) {
     router.post('/extensions-backup', async (req, res) => {
         try {
             const ctx = getUserContext(req);
+            assertNotBusy(ctx, '更新扩展备份');
             const list = req.body?.list;
             if (!Array.isArray(list)) {
                 res.status(400).json({ success: false, error: '需要提供 list 数组。' });
@@ -612,10 +657,19 @@ async function init(router) {
     router.post('/force-push', async (req, res) => {
         try {
             const ctx = getUserContext(req);
-            if (ctx.syncInProgress) {
-                res.status(409).json({ success: false, error: '同步操作正在进行中。' });
+            assertNotBusy(ctx, '强制推送');
+
+            // 强制推送是本插件破坏性最强的操作：它用本地状态覆盖远端历史，
+            // 远端独有的提交会被永久丢弃。必须显式确认，不能靠点错按钮触发。
+            if (req.body?.confirm !== true) {
+                res.status(400).json({
+                    success: false,
+                    error: '强制推送会覆盖远端历史并永久丢弃远端提交，需要显式确认（请求体包含 confirm: true）。',
+                    code: 'CONFIRM_REQUIRED',
+                });
                 return;
             }
+
             ctx.syncInProgress = true;
             try {
                 await gitOps.resolveAllOurs(ctx.syncDir);
@@ -651,32 +705,81 @@ async function init(router) {
     router.post('/backup/create', async (req, res) => {
         try {
             const ctx = getUserContext(req);
-            const result = await backup.createBackup(ctx.config, ctx.stDataRoot);
+            assertNotBusy(ctx, '创建备份');
+
+            // 手动备份要显式打开开关：用户可能在配置里关了自动备份，
+            // 但手动点「立即备份」的意图很明确，不应被那个开关挡住。
+            const result = await backup.createBackup(
+                { ...ctx.config, autoBackup: { ...ctx.config.autoBackup, enabled: true } },
+                ctx.stDataRoot
+            );
+
             if (!result.created) {
-                const message = result.reason === 'disabled'
-                    ? '自动备份功能已关闭，未创建备份。'
-                    : '没有数据需要备份。';
-                res.json({ success: true, message });
+                const messages = {
+                    disabled: '自动备份功能已关闭，未创建备份。',
+                    'no-data': '没有数据需要备份。',
+                    unchanged: '数据与最新备份完全一致，已跳过本次备份。',
+                };
+                res.json({
+                    success: true,
+                    message: messages[result.reason] || '未创建备份。',
+                    reason: result.reason,
+                });
                 return;
+            }
+
+            if (result.pruned?.length) {
+                addLogEntry(ctx, 'info', '已按容量上限清理旧备份', result.pruned.join(', '));
             }
             addLogEntry(ctx, 'info', '手动备份已创建', `${result.categories.length} 个类别, ${backup.formatSize(result.size)}`);
             res.json({ success: true, ...result, sizeFormatted: backup.formatSize(result.size) });
         } catch (err) {
-            res.status(500).json({ success: false, error: err.message });
+            res.status(err.statusCode || 500).json({ success: false, error: err.message });
         }
     });
 
     router.post('/backup/restore', async (req, res) => {
         try {
             const ctx = getUserContext(req);
+            assertNotBusy(ctx, '恢复备份');
+
             const { backupId } = req.body || {};
             if (!backupId) {
                 res.status(400).json({ success: false, error: '需要提供 backupId。' });
                 return;
             }
-            const result = await backup.restoreBackup(backupId, ctx.config, ctx.stDataRoot);
-            addLogEntry(ctx, 'success', '备份已恢复', result.restored.join(', '));
-            res.json({ success: true, ...result });
+
+            // 恢复是破坏性操作：它用旧数据覆盖当前数据。
+            // 先强制为「当前状态」留一份安全备份，否则用户一旦恢复错了就再也回不去。
+            // 安全备份失败则中止恢复 —— 宁可恢复不了，也不能把现有数据弄丢。
+            ctx.syncInProgress = true;
+            try {
+                let safety = null;
+                try {
+                    safety = await backup.createBackup(
+                        { ...ctx.config, autoBackup: { ...ctx.config.autoBackup, enabled: true } },
+                        ctx.stDataRoot
+                    );
+                } catch (err) {
+                    throw Object.assign(
+                        new Error(`恢复前的安全备份失败，已中止恢复：${err.message}`),
+                        { statusCode: 500, code: 'SAFETY_BACKUP_FAILED' }
+                    );
+                }
+
+                const result = await backup.restoreBackup(backupId, ctx.config, ctx.stDataRoot);
+                addLogEntry(ctx, 'success', '备份已恢复', result.restored.join(', '));
+                if (safety?.created) {
+                    addLogEntry(ctx, 'info', '恢复前的安全备份已创建', safety.id);
+                }
+                res.json({
+                    success: true,
+                    ...result,
+                    safetyBackupId: safety?.created ? safety.id : null,
+                });
+            } finally {
+                ctx.syncInProgress = false;
+            }
         } catch (err) {
             res.status(err.statusCode || 500).json({ success: false, error: err.message });
         }
@@ -685,6 +788,7 @@ async function init(router) {
     router.delete('/backup/:id', async (req, res) => {
         try {
             const ctx = getUserContext(req);
+            assertNotBusy(ctx, '删除备份');
             await backup.deleteBackup(req.params.id, ctx.stDataRoot);
             addLogEntry(ctx, 'info', '备份已删除', req.params.id);
             res.json({ success: true });

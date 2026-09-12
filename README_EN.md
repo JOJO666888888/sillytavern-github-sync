@@ -10,9 +10,12 @@ Sync SillyTavern data to a private GitHub repository — characters, chats, worl
 - **Auto-push** on a configurable interval
 - **Selectable data categories** — sync only what you need
 - **Test connection** button to verify your repo and token
-- **Sync log** with the last 10 operations
+- **Sync log** — last 100 operations, persisted to disk so they survive a restart
 - **Token security** — the PAT is kept in a `0600` secret file outside the data directory (or in an environment variable); never exposed to the frontend and never written into git config
 - **Auto-update** — plugin updates itself on server restart
+- **Network resilience** — git operations have a timeout and exponential-backoff retry; authentication errors are never retried (retrying them is pointless)
+- **Bounded backups** — identical content is skipped automatically; old backups are pruned by both count and total size
+- **Guards on destructive actions** — restoring a backup takes a safety backup first; force-push requires explicit confirmation
 
 ## Prerequisites
 
@@ -208,10 +211,11 @@ Evening - on desktop (autoPush on):
 | Worlds | `data/default-user/worlds/` |
 | Groups | `data/default-user/groups/` |
 | Settings | `data/default-user/settings.json` |
-| Presets | `data/default-user/presets/` |
-| Personas | `data/default-user/personas/` |
+| Presets | `data/default-user/OpenAI Settings/` |
+| Personas | `data/default-user/User Avatars/` |
 | Backgrounds | `data/default-user/backgrounds/` |
 | Themes | `data/default-user/themes/` |
+| Extensions | `data/default-user/extensions-backup.json` |
 
 > **About API configuration:** This plugin does **NOT** touch SillyTavern's API settings (e.g., OpenRouter Key, Claude Key, etc.). The plugin's own GitHub Token is automatically stripped before push and preserved locally during pull — it is **never synced to the repository**. If you prefer not to sync other extension settings in `settings.json` across devices, simply uncheck the "Settings" category.
 
@@ -285,6 +289,38 @@ The token is resolved in this order: environment variable `ST_GITHUB_SYNC_TOKEN`
 
 - Removed the mistakenly committed `config.yaml` at the repository root (plugin code never read it, and
   its contents contradicted the README)
+
+**Engineering and robustness**
+
+- **Automated tests added** — `npm test` runs 22 regression assertions (path traversal, backup semantics
+  and sizing, token precedence, environment construction, askpass behaviour, retry classification,
+  migration flow). No network and no running SillyTavern required
+- **GitHub Actions CI added** — syntax check and the full test suite on Node 18 / 20 / 22
+- **package.json metadata completed** — `license`, `engines`, `repository`, `scripts`; version unified at 1.1.0
+- **Git timeout and retry** — a stalled network used to hang a sync indefinitely. There is now a 3-minute
+  timeout plus exponential-backoff retry (up to 3 attempts), while authentication/permission errors fail
+  immediately instead of being retried pointlessly
+- **Backup size governance** — a single backup measured up to 359 MB, and the old code only pruned by count
+  (5 backups ≈ 1.8 GB). A total-size cap was added (default 2048 MB, tunable via
+  `autoBackup.maxTotalSizeMB`), and at least one backup is always retained
+- **Backup de-duplication** — when the content fingerprint matches the newest backup the copy is skipped
+  entirely, so a pre-pull backup no longer re-copies hundreds of MB when nothing changed
+- **Concurrency guards completed** — backup create/restore/delete and extensions-backup writes now
+  participate in the operation lock, so they can no longer interleave with a push/pull and leave a
+  half-mixed data directory
+- **Guards on destructive actions** — restoring a backup takes a safety backup first (and aborts the
+  restore if that fails); force-push requires an explicit `confirm: true`, so a stray click can no longer
+  discard remote history
+- **Log persistence** — went from "in-memory, 10 entries" to 100 entries written to disk, so post-mortem
+  debugging survives a restart
+- **Installer now uses `npm ci`** — installs from `package-lock.json`, so results are reproducible
+- **README corrected against the implementation** — the real paths for presets and personas are
+  `OpenAI Settings/` and `User Avatars/` (the README had been listing the non-existent `presets/` and
+  `personas/`), and the category table was missing the extensions entry
+- **Removed the stale internal document** `OPTIMIZATION.md`
+- `copyDirIfChanged` now skips deletion when the source directory is empty but the target is not, to avoid
+  wiping a repository copy by mistake
+- Frontend `escapeHtml` now escapes single quotes as well
 
 **Upgrade notes**
 

@@ -1,11 +1,1 @@
-{
-    "name": "github-data-sync",
-    "version": "1.0.0",
-    "private": true,
-    "description": "SillyTavern plugin to sync data with a private GitHub repository",
-    "main": "index.js",
-    "dependencies": {
-        "simple-git": "^3.27.0",
-        "fs-extra": "^11.2.0"
-    }
-}
+{"bugs":{"url":"https://github.com/JOJO666888888/sillytavern-github-sync/issues"},"dependencies":{"fs-extra":"^11.2.0","simple-git":"^3.27.0"},"description":"SillyTavern plugin to sync data with a private GitHub repository","engines":{"node":"\u003e=18"},"homepage":"https://github.com/JOJO666888888/sillytavern-github-sync#readme","license":"MIT","main":"index.js","name":"github-data-sync","private":true,"repository":{"type":"git","url":"git+https://github.com/JOJO666888888/sillytavern-github-sync.git"},"scripts":{"check":"node --check index.js \u0026\u0026 node --check lib/git-ops.js \u0026\u0026 node --check lib/sync-config.js \u0026\u0026 node --check lib/backup.js \u0026\u0026 node --check lib/sync-engine.js \u0026\u0026 node --check lib/secrets.js \u0026\u0026 node --check lib/data-layout.js \u0026\u0026 node --check client/index.js","test":"node test/run.js"},"version":"1.1.0"}

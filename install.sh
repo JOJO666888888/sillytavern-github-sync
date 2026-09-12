@@ -31,9 +31,16 @@ else
 fi
 
 # Install dependencies
+# 优先用 npm ci：它严格按 package-lock.json 安装，可复现且不会意外升级依赖。
+# 仅在缺少 lock 文件时回退到 npm install。
 echo "[2/3] Installing dependencies..."
 cd "$PLUGIN_DIR"
-npm install --omit=dev
+if [ -f package-lock.json ]; then
+    npm ci --omit=dev
+else
+    echo "  ⚠ package-lock.json 缺失，回退到 npm install（结果不可复现）"
+    npm install --omit=dev
+fi
 
 # Check config
 echo "[3/3] Checking configuration..."

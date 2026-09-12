@@ -1,7 +1,7 @@
 {
     "name": "github-data-sync",
     "display_name": "GitHub Data Sync",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "description": "Sync SillyTavern data (characters, chats, worlds, settings, etc.) with a private GitHub repository. Manual push/pull via slash commands or periodic auto-push.",
     "author": "JOJO666888888",
     "type": "plugin",

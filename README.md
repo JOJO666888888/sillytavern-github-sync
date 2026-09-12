@@ -10,9 +10,12 @@
 - **定时自动推送** —— 可配置间隔时间，自动备份数据
 - **按类别选择同步内容** —— 只同步你需要的数据
 - **连接测试** —— 一键验证仓库和 Token 是否配置正确
-- **同步日志** —— 记录最近 10 次操作
+- **同步日志** —— 最近 100 次操作，持久化到磁盘，重启后仍可查看
 - **Token 安全** —— PAT 存放在数据目录之外的 `0600` 密钥文件（或环境变量），不会暴露给前端，也不会写进 git 配置
 - **自动更新** —— 服务器重启时自动拉取最新代码
+- **网络容错** —— git 操作带超时保护与指数退避重试；鉴权类错误不重试（重试也没有意义）
+- **备份容量可控** —— 内容未变时自动跳过重复备份；按「份数 + 总体积」双重上限清理旧备份
+- **破坏性操作有闸门** —— 恢复备份前先自动留一份安全备份；强制推送需要显式确认
 
 ## 前置条件
 
@@ -55,7 +58,7 @@ enableServerPlugins: true
 cd SillyTavern/plugins
 git clone https://github.com/JOJO666888888/sillytavern-github-sync.git github-data-sync
 cd github-data-sync
-npm install
+npm ci
 ```
 
 ### 第三步：重启 SillyTavern
@@ -178,6 +181,7 @@ npm install
 | 人格 (Personas) | ✓ | | |
 | 背景 (Backgrounds) | | ✓ | |
 | 主题 (Themes) | | ✓ | |
+| 扩展清单 (Extensions) | ✓ | | |
 
 > 「全设备同步」= 在不同设备上保持一致；「仅备份」= 备份到 GitHub 但不建议跨设备覆盖，因为不同设备可能有不同的偏好设置。
 
@@ -210,10 +214,11 @@ npm install
 | 世界书 (Worlds) | `data/default-user/worlds/` |
 | 群组 (Groups) | `data/default-user/groups/` |
 | 设置 (Settings) | `data/default-user/settings.json` |
-| 预设 (Presets) | `data/default-user/presets/` |
-| 人格 (Personas) | `data/default-user/personas/` |
+| 预设 (Presets) | `data/default-user/OpenAI Settings/` |
+| 人格 (Personas) | `data/default-user/User Avatars/` |
 | 背景 (Backgrounds) | `data/default-user/backgrounds/` |
 | 主题 (Themes) | `data/default-user/themes/` |
+| 扩展清单 (Extensions) | `data/default-user/extensions-backup.json` |
 
 > **关于 API 配置：** 此插件**不涉及** SillyTavern 的 API 配置（如 OpenRouter Key、Claude Key 等）。插件的 GitHub Token 等配置在推送时自动过滤，拉取时自动保留本地值，**不会被同步到仓库中**。如果你不希望 `settings.json` 中的其他扩展设置在不同设备间同步，取消勾选「设置 (Settings)」类别即可。
 
@@ -278,6 +283,30 @@ GitHub Token 的读取优先级：环境变量 `ST_GITHUB_SYNC_TOKEN` → 密钥
 
 - 删除仓库根目录误提交的 `config.yaml`（插件代码从未读取它，且其内容与 README 自相矛盾）
 
+**工程与健壮性**
+
+- **新增自动化测试** —— `npm test` 运行 22 项回归断言（路径穿越、备份语义与容量、Token 优先级、
+  环境构造、askpass 行为、重试分类、迁移流程），不需要网络，也不需要 SillyTavern 运行环境
+- **新增 GitHub Actions CI** —— 在 Node 18 / 20 / 22 上执行语法检查与全部测试
+- **补齐 package.json 元数据** —— 增加 `license`、`engines`、`repository`、`scripts`；版本号统一为 1.1.0
+- **git 操作超时与重试** —— 原先网络卡死会让同步永久挂起。现在有 3 分钟超时 + 指数退避重试（最多 3 次），
+  且鉴权/权限类错误立即失败、不做无意义重试
+- **备份容量治理** —— 单次备份实测可达 359 MB，而旧实现只按份数（5 份）裁剪，约 1.8 GB。
+  现在增加总体积上限（默认 2048 MB，可用 `autoBackup.maxTotalSizeMB` 调整），并保证至少保留 1 份
+- **备份去重** —— 内容指纹与最新备份一致时直接跳过复制，
+  避免「拉取前备份」在数据完全没变的情况下白拷数百 MB
+- **并发保护补齐** —— 备份创建/恢复/删除、扩展备份写入现在都纳入操作锁，
+  避免与推送/拉取并发时写出混合状态的数据目录
+- **破坏性操作闸门** —— 恢复备份前强制先留一份安全备份（失败则中止恢复）；
+  强制推送需要 `confirm: true` 显式确认，避免点错按钮就丢弃远端历史
+- **日志持久化** —— 由「仅内存 10 条」改为落盘 100 条，进程重启后仍可事后排查
+- **安装脚本改用 `npm ci`** —— 按 `package-lock.json` 安装，结果可复现
+- **修正 README 与实际路径不符** —— 预设/人格的真实路径是 `OpenAI Settings/`、`User Avatars/`
+  （README 一直写的是不存在的 `presets/`、`personas/`），且数据类别表漏列了扩展清单
+- **删除过期的内部文档** `OPTIMIZATION.md`
+- `copyDirIfChanged` 增加空目录保护：源目录为空而目标非空时跳过删除，避免误清空仓库副本
+- 前端 `escapeHtml` 补上单引号转义
+
 **升级说明**
 
 - **无需任何手动操作**：插件启动时会自动完成 Token 迁移
@@ -332,5 +361,5 @@ GitHub Token 的读取优先级：环境变量 `ST_GITHUB_SYNC_TOKEN` → 密钥
 ```bash
 cd SillyTavern/plugins/github-data-sync
 git pull origin main
-npm install
+npm ci
 ```
